@@ -5,6 +5,7 @@ import os
 from flask import Flask
 import threading
 
+# --- Web Server عشان Render ما يطفي البوت ---
 app = Flask(__name__)
 @app.route('/')
 def home():
@@ -15,6 +16,7 @@ def run_web():
 
 threading.Thread(target=run_web).start()
 
+# --- Discord Bot ---
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
@@ -27,33 +29,53 @@ async def on_ready():
 async def ping(ctx):
     await ctx.send("Pong! 🏓")
 
-@bot.command(name="سعر")
-async def price(ctx, coin="bitcoin"):
+# قاموس العملات
+COINS = {
+    "bitcoin": "BTCUSDT",
+    "btc": "BTCUSDT",
+    "ethereum": "ETHUSDT",
+    "eth": "ETHUSDT",
+    "solana": "SOLUSDT",
+    "sol": "SOLUSDT"
+}
+
+def get_price(symbol):
     try:
-        coin = coin.lower()
-        r = requests.get(f"https://api.coingecko.com/api/v3/simple/price?ids={coin}&vs_currencies=usd").json()
-        await ctx.send(f"💰 سعر {coin}: ${r[coin]['usd']}")
-    except:
-        await ctx.send("ما لقيت العملة! جرب: bitcoin, ethereum, solana")
+        url = f"https://api.binance.com/api/v3/ticker/price?symbol={symbol}"
+        r = requests.get(url, timeout=10).json()
+        return float(r['price'])
+    except Exception as e:
+        print(f"Error: {e}")
+        return None
+
+@bot.command(name="سعر")
+async def price_cmd(ctx, coin: str = "bitcoin"):
+    coin = coin.lower().strip()
+    symbol = COINS.get(coin, "BTCUSDT")
+    price = get_price(symbol)
+    if price:
+        await ctx.send(f"💰 سعر {coin}: ${price:,.2f}")
+    else:
+        await ctx.send("ما قدرت اجيب السعر الحين، جرب بعد شوي")
 
 @bot.event
 async def on_message(message):
     if message.author.bot:
         return
-    content = message.content.lower()
-    # هذا يخليه يفهم طريقتك "bitcoin سعر"
-    if "سعر" in content:
-        for c in ["bitcoin", "ethereum", "solana", "btc", "eth"]:
-            if c in content:
-                try:
-                    real_coin = c
-                    if c == "btc": real_coin = "bitcoin"
-                    if c == "eth": real_coin = "ethereum"
-                    r = requests.get(f"https://api.coingecko.com/api/v3/simple/price?ids={real_coin}&vs_currencies=usd").json()
-                    await message.channel.send(f"💰 سعر {real_coin}: ${r[real_coin]['usd']}")
-                    return
-                except:
-                    pass
+    
+    msg = message.content.lower()
+    
+    # يفهم اذا كتبت "bitcoin سعر"
+    if "سعر" in msg:
+        for key, symbol in COINS.items():
+            if key in msg:
+                price = get_price(symbol)
+                if price:
+                    await message.channel.send(f"💰 سعر {key}: ${price:,.2f}")
+                else:
+                    await message.channel.send("ما قدرت اجيب السعر الحين")
+                return
+    
     await bot.process_commands(message)
 
 bot.run(os.getenv("DISCORD_TOKEN"))
