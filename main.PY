@@ -20,3 +20,11 @@ async def price(ctx, coin="bitcoin"):
 
 import os
 bot.run(os.getenv("DISCORD_TOKEN"))
+
+@bot.command()
+async def ping(ctx):
+    await ctx.send("Pong! 🏓")
+
+@bot.command()
+async def status(ctx):
+    await ctx.send(f"البوت شغال ✅ {bot.user}")
