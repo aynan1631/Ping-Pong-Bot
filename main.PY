@@ -27,16 +27,33 @@ async def on_ready():
 async def ping(ctx):
     await ctx.send("Pong! 🏓")
 
-@bot.command()
-async def status(ctx):
-    await ctx.send(f"شغال 100% ✅ {bot.user}")
-
 @bot.command(name="سعر")
 async def price(ctx, coin="bitcoin"):
     try:
+        coin = coin.lower()
         r = requests.get(f"https://api.coingecko.com/api/v3/simple/price?ids={coin}&vs_currencies=usd").json()
         await ctx.send(f"💰 سعر {coin}: ${r[coin]['usd']}")
     except:
         await ctx.send("ما لقيت العملة! جرب: bitcoin, ethereum, solana")
+
+@bot.event
+async def on_message(message):
+    if message.author.bot:
+        return
+    content = message.content.lower()
+    # هذا يخليه يفهم طريقتك "bitcoin سعر"
+    if "سعر" in content:
+        for c in ["bitcoin", "ethereum", "solana", "btc", "eth"]:
+            if c in content:
+                try:
+                    real_coin = c
+                    if c == "btc": real_coin = "bitcoin"
+                    if c == "eth": real_coin = "ethereum"
+                    r = requests.get(f"https://api.coingecko.com/api/v3/simple/price?ids={real_coin}&vs_currencies=usd").json()
+                    await message.channel.send(f"💰 سعر {real_coin}: ${r[real_coin]['usd']}")
+                    return
+                except:
+                    pass
+    await bot.process_commands(message)
 
 bot.run(os.getenv("DISCORD_TOKEN"))
