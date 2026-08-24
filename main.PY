@@ -1,89 +1,114 @@
-from flask import Flask
-from threading import Thread
-import os, discord, requests, asyncio, time
-import pandas as pd
+import discord, asyncio, os, json
+import ccxt, pandas as pd
+from datetime import datetime
 
-app = Flask('')
-@app.route('/')
-def home(): return "Scalping Bot Paper Trading LIVE!"
-def run(): app.run(host='0.0.0.0', port=8080)
-def keep_alive():
-    t = Thread(target=run); t.start()
-
-# === اعدادات الاستراتيجية ===
-COINS = {"BTCUSDT":"بيتكوين", "ETHUSDT":"ايثيريوم", "SOLUSDT":"سولانا"}
-CAPITAL = 100 # راس المال الوهمي لكل عملة 100$
-TP = 1.5 # هدف ربح 1.5%
-SL = 0.8 # وقف خسارة 0.8%
-
-paper_trades = {} # يحفظ الصفقات الوهمية
-
-def get_klines(symbol, limit=100):
-    try:
-        url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval=5m&limit={limit}"
-        data = requests.get(url, timeout=10).json()
-        df = pd.DataFrame(data, columns=['o','h','l','c','v','ct','q','n','tb','tq','ig'])
-        df['c'] = df['c'].astype(float)
-        return df
-    except: return None
-
-def calc_ema_rsi(df):
-    df['EMA9'] = df['c'].ewm(span=9).mean()
-    df['EMA21'] = df['c'].ewm(span=21).mean()
-    delta = df['c'].diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-    rs = gain / loss
-    df['RSI'] = 100 - (100 / (1 + rs))
-    return df.iloc[-1]
+TOKEN = os.getenv("DISCORD_TOKEN")
+CHANNEL_ID = int(os.getenv("CHANNEL_ID", "0"))
 
 intents = discord.Intents.default()
 intents.message_content = True
-client = discord.Client(intents=intents)
+bot = discord.Client(intents=intents)
 
-async def scalping_loop():
-    await client.wait_until_ready()
-    channel = None
-    while not client.is_closed():
-        for symbol, name in COINS.items():
-            df = get_klines(symbol)
-            if df is None: continue
-            last = calc_ema_rsi(df)
-            price = last['c']
-            ema9, ema21, rsi = last['EMA9'], last['EMA21'], last['RSI']
+DATA_FILE = "paper_trades.json"
+SYMBOL = "BTC/USDT"
+TIMEFRAME = "5m"
 
-            # اذا ما عنده صفقة مفتوحة - يدور شراء
-            if symbol not in paper_trades:
-                if ema9 > ema21 and rsi < 35:
-                    paper_trades[symbol] = {"buy": price, "time": time.time()}
-                    msg = f"🟢 **دخول سكالب شراء وهمي**\n{name} ({symbol})\nالسعر: ${price:,.2f}\nEMA9: {ema9:.2f} > EMA21: {ema21:.2f}\nRSI: {rsi:.1f} (تشبع بيع)\nالهدف: +{TP}% | وقف: -{SL}%"
-                    if channel: await channel.send(msg)
+def load_data():
+    if not os.path.exists(DATA_FILE):
+        return {"balance": 1000.0, "open": None, "history": []}
+    with open(DATA_FILE, "r") as f:
+        return json.load(f)
+
+def save_data(d):
+    with open(DATA_FILE, "w") as f:
+        json.dump(d, f)
+
+exchange = ccxt.binance()
+
+def get_emas():
+    ohlcv = exchange.fetch_ohlcv(SYMBOL, TIMEFRAME, limit=100)
+    df = pd.DataFrame(ohlcv, columns=['t','o','h','l','c','v'])
+    df['ema9'] = df['c'].ewm(span=9).mean()
+    df['ema25'] = df['c'].ewm(span=25).mean()
+    return df.iloc[-3], df.iloc[-2], df.iloc[-1], df['c'].iloc[-1]
+
+async def trading_loop():
+    await bot.wait_until_ready()
+    channel = bot.get_channel(CHANNEL_ID)
+    print("Bot is ready - Trading loop started")
+    while True:
+        try:
+            prev2, prev1, last, price = get_emas()
+            data = load_data()
+            
+            # --- شروط الدخول المخففة ---
+            # شراء: اغلاق فوق التقاطع
+            buy_signal = last['ema9'] > last['ema25'] and prev1['ema9'] <= prev1['ema25'] and last['c'] > last['ema9']
+            # بيع: اغلاق تحت التقاطع
+            sell_signal = last['ema9'] < last['ema25'] and prev1['ema9'] >= prev1['ema25'] and last['c'] < last['ema9']
+
+            if data['open'] is None:
+                if buy_signal:
+                    data['open'] = {"type":"شراء","entry":price,"time":str(datetime.now()),"ema9":last['ema9'],"ema25":last['ema25']}
+                    save_data(data)
+                    if channel: await channel.send(f"🟢 **دخل شراء** {SYMBOL} @ {price:.2f}\nالسبب: اغلاق فوق التقاطع 9>25")
+                elif sell_signal:
+                    data['open'] = {"type":"بيع","entry":price,"time":str(datetime.now()),"ema9":last['ema9'],"ema25":last['ema25']}
+                    save_data(data)
+                    if channel: await channel.send(f"🔴 **دخل بيع** {SYMBOL} @ {price:.2f}\nالسبب: اغلاق تحت التقاطع 9<25")
             else:
-                buy_price = paper_trades[symbol]['buy']
-                pnl = ((price - buy_price)/buy_price)*100
-                if pnl >= TP or pnl <= -SL or (ema9 < ema21 and rsi > 65):
-                    result = "✅ ربح" if pnl>0 else "❌ خسارة"
-                    msg = f"{result} **خروج سكالب وهمي**\n{name}\nدخول: ${buy_price:,.2f} | خروج: ${price:,.2f}\nالربح: {pnl:+.2f}%"
-                    del paper_trades[symbol]
-                    if channel: await channel.send(msg)
-        await asyncio.sleep(60) # يفحص كل دقيقة
+                # --- شروط الخروج: تلامس الخطين + ربح فقط ---
+                touch = abs(last['ema9'] - last['ema25']) / last['c'] * 100 < 0.05 # تلامس أقل من 0.05%
+                entry = data['open']['entry']
+                pnl = (price - entry)/entry*100 if data['open']['type']=="شراء" else (entry - price)/entry*100
+                
+                if touch and pnl > 0:
+                    data['balance'] += data['balance'] * 0.01 * pnl # ربح 1% من الرصيد
+                    data['history'].append({"type":data['open']['type'],"entry":entry,"exit":price,"pnl":round(pnl,2),"time":str(datetime.now())})
+                    if channel: await channel.send(f"✅ **قفل {data['open']['type']}** @ {price:.2f} | ربح {pnl:.2f}% | الرصيد: {data['balance']:.2f}$\nالسبب: تلامس 9 مع 25")
+                    data['open'] = None
+                    save_data(data)
 
-@client.event
-async def on_ready():
-    print(f'Bot {client.user} is ready - Paper Trading Mode')
-    client.loop.create_task(scalping_loop())
+        except Exception as e:
+            print(f"Error: {e}")
+        await asyncio.sleep(60)
 
-@client.event
+@bot.event
 async def on_message(message):
-    if message.author == client.user: return
-    if "رصيد" in message.content or "صفقات" in message.content:
-        if not paper_trades:
+    if message.author.bot: return
+    data = load_data()
+    msg = message.content.strip()
+
+    if msg == "الرصيد":
+        open_txt = f"{data['open']['type']} @ {data['open']['entry']}" if data['open'] else "لا يوجد"
+        await message.channel.send(f"💰 **الرصيد:** {data['balance']:.2f}$\n� open: {open_txt}\n📜 المقفلة: {len(data['history'])}")
+
+    elif msg == "صفقات":
+        if not data['open']:
             await message.channel.send("📭 لا يوجد صفقات مفتوحة حاليا")
         else:
-            txt = "📊 **الصفقات المفتوحة (وهمي):**\n"
-            for s, t in paper_trades.items():
-                txt += f"- {s}: شراء ${t['buy']:,.2f}\n"
+            price = exchange.fetch_ticker(SYMBOL)['last']
+            entry = data['open']['entry']
+            pnl = (price-entry)/entry*100 if data['open']['type']=="شراء" else (entry-price)/entry*100
+            await message.channel.send(f"📊 **مفتوحة:** {data['open']['type']} @ {entry:.2f} | الآن {price:.2f} | PnL {pnl:.2f}%")
+
+    elif msg == "السجل":
+        if not data['history']:
+            await message.channel.send("📭 السجل فاضي")
+        else:
+            txt = "📜 **آخر 10 صفقات:**\n"
+            for t in data['history'][-10:]:
+                txt += f"{t['type']} | {t['pnl']}% | {t['entry']:.1f}->{t['exit']:.1f}\n"
             await message.channel.send(txt)
 
-keep_alive()
-client.run(os.getenv("DISCORD_TOKEN"))
+    elif msg == "احصائيات":
+        h = data['history']
+        if not h:
+            await message.channel.send("📊 لا يوجد احصائيات بعد - انتظر أول صفقة تقفل")
+        else:
+            wins = len([x for x in h if x['pnl']>0])
+            avg = sum([x['pnl'] for x in h])/len(h)
+            await message.channel.send(f"📊 **احصائيات:**\nإجمالي: {len(h)}\nرابحة: {wins} | خاسرة: {len(h)-wins}\nنسبة: {wins/len(h)*100:.1f}%\nمتوسط الربح: {avg:.2f}%")
+
+bot.loop.create_task(trading_loop())
+bot.run(TOKEN)
