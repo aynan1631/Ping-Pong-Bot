@@ -44,6 +44,9 @@ async def trading_loop():
     await bot.wait_until_ready()
     channel = bot.get_channel(CHANNEL_ID)
     print("Bot is ready - Trading loop started")
+
+    first_run = True # <-- تعديل جديد
+
     while True:
         try:
             ohlcv = exchange.fetch_ohlcv(SYMBOL, "5m", limit=50)
@@ -54,18 +57,35 @@ async def trading_loop():
             ema9_prev = calc_ema(closes[-10:-1], 9)
             ema25_prev = calc_ema(closes[:-1], 25)
             data = load_data()
-            buy = ema9 > ema25 and ema9_prev <= ema25_prev
-            sell = ema9 < ema25 and ema9_prev >= ema25_prev
+
+            buy_cross = ema9 > ema25 and ema9_prev <= ema25_prev
+            sell_cross = ema9 < ema25 and ema9_prev >= ema25_prev
 
             if data['open'] is None:
-                if buy:
-                    data['open'] = {"type":"شراء","entry":price,"time":str(datetime.now())}
-                    save_data(data)
-                    if channel: await channel.send(f"🟢 دخل شراء @ {price:.2f}")
-                elif sell:
-                    data['open'] = {"type":"بيع","entry":price,"time":str(datetime.now())}
-                    save_data(data)
-                    if channel: await channel.send(f"🔴 دخل بيع @ {price:.2f}")
+                # اذا أول تشغيل، ادخل مباشرة على حسب الترند الحالي
+                if first_run:
+                    print(f"فحص أولي: EMA9={ema9:.2f} EMA25={ema25:.2f}")
+                    if ema9 > ema25:
+                        data['open'] = {"type":"شراء","entry":price,"time":str(datetime.now())}
+                        save_data(data)
+                        if channel: await channel.send(f"🟢 دخول فوري شراء @ {price:.2f} | EMA9 فوق EMA25")
+                        print("تم فتح شراء فوري")
+                    elif ema9 < ema25:
+                        data['open'] = {"type":"بيع","entry":price,"time":str(datetime.now())}
+                        save_data(data)
+                        if channel: await channel.send(f"🔴 دخول فوري بيع @ {price:.2f} | EMA9 تحت EMA25")
+                        print("تم فتح بيع فوري")
+                    first_run = False
+                else:
+                    # بعد أول مرة، يرجع ينتظر التقاطع
+                    if buy_cross:
+                        data['open'] = {"type":"شراء","entry":price,"time":str(datetime.now())}
+                        save_data(data)
+                        if channel: await channel.send(f"🟢 دخل شراء @ {price:.2f}")
+                    elif sell_cross:
+                        data['open'] = {"type":"بيع","entry":price,"time":str(datetime.now())}
+                        save_data(data)
+                        if channel: await channel.send(f"🔴 دخل بيع @ {price:.2f}")
             else:
                 touch = abs(ema9 - ema25) / price * 100 < 0.05
                 entry = data['open']['entry']
