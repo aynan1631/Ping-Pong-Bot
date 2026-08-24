@@ -1,3 +1,9 @@
+from flask import Flask
+import threading
+app = Flask('')
+@app.route('/')
+def home(): return "Bot is alive!"
+threading.Thread(target=lambda: app.run(host='0.0.0.0', port=8080)).start()
 import discord, asyncio, os, json
 import ccxt
 from datetime import datetime
