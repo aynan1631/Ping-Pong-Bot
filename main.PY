@@ -1,5 +1,6 @@
 from flask import Flask
 import threading
+import asyncio
 
 app = Flask('')
 @app.route('/')
@@ -9,9 +10,9 @@ def home():
 def run_flask():
     app.run(host='0.0.0.0', port=8080)
 
-threading.Thread(target=run_flask).start()
+threading.Thread(target=run_flask, daemon=True).start()
 
-import discord, asyncio, os, json
+import discord, os, json
 import ccxt
 from datetime import datetime
 
@@ -41,14 +42,15 @@ def calc_ema(prices, period):
     return ema
 
 async def trading_loop():
-    await bot.wait_until_ready()
     channel = bot.get_channel(CHANNEL_ID)
     print("Bot is ready - Trading loop started")
+    await asyncio.sleep(5)
 
-    first_run = True # <-- تعديل جديد
+    first_run = True
 
     while True:
         try:
+            print("Checking market...")
             ohlcv = exchange.fetch_ohlcv(SYMBOL, "5m", limit=50)
             closes = [x[4] for x in ohlcv]
             price = closes[-1]
@@ -56,19 +58,20 @@ async def trading_loop():
             ema25 = calc_ema(closes, 25)
             ema9_prev = calc_ema(closes[-10:-1], 9)
             ema25_prev = calc_ema(closes[:-1], 25)
-            data = load_data()
 
+            print(f"Price: {price:.2f} EMA9: {ema9:.2f} EMA25: {ema25:.2f}")
+
+            data = load_data()
             buy_cross = ema9 > ema25 and ema9_prev <= ema25_prev
             sell_cross = ema9 < ema25 and ema9_prev >= ema25_prev
 
             if data['open'] is None:
-                # اذا أول تشغيل، ادخل مباشرة على حسب الترند الحالي
                 if first_run:
                     print(f"فحص أولي: EMA9={ema9:.2f} EMA25={ema25:.2f}")
                     if ema9 > ema25:
                         data['open'] = {"type":"شراء","entry":price,"time":str(datetime.now())}
                         save_data(data)
-                        if channel: await channel.send(f"🟢 دخول فوري شراء @ {price:.2f} | EMA9 فوق EMA25")
+                        if channel: await channel.send(f"🟢 دخول فوري شراء @ {price:.2f}")
                         print("تم فتح شراء فوري")
                     elif ema9 < ema25:
                         data['open'] = {"type":"بيع","entry":price,"time":str(datetime.now())}
@@ -77,15 +80,16 @@ async def trading_loop():
                         print("تم فتح بيع فوري")
                     first_run = False
                 else:
-                    # بعد أول مرة، يرجع ينتظر التقاطع
                     if buy_cross:
                         data['open'] = {"type":"شراء","entry":price,"time":str(datetime.now())}
                         save_data(data)
                         if channel: await channel.send(f"🟢 دخل شراء @ {price:.2f}")
+                        print("تم فتح شراء - تقاطع")
                     elif sell_cross:
                         data['open'] = {"type":"بيع","entry":price,"time":str(datetime.now())}
                         save_data(data)
                         if channel: await channel.send(f"🔴 دخل بيع @ {price:.2f}")
+                        print("تم فتح بيع - تقاطع")
             else:
                 touch = abs(ema9 - ema25) / price * 100 < 0.05
                 entry = data['open']['entry']
@@ -96,11 +100,19 @@ async def trading_loop():
                     if channel: await channel.send(f"✅ قفل {data['open']['type']} @ {price:.2f} | ربح {pnl:.2f}%")
                     data['open'] = None
                     save_data(data)
-        except Exception as e: print(f"Error: {e}")
+                    print(f"تم قفل الصفقة ربح {pnl:.2f}%")
+                else:
+                    print(f"صفقة مفتوحة {data['open']['type']} PnL: {pnl:.2f}% Touch: {touch}")
+
+        except Exception as e:
+            print(f"Error: {e}")
         await asyncio.sleep(60)
 
 class MyBot(discord.Client):
-    async def setup_hook(self): self.loop.create_task(trading_loop())
+    async def setup_hook(self):
+        print("Setup hook called")
+        self.loop.create_task(trading_loop())
+
     async def on_message(self, message):
         if message.author.bot: return
         data = load_data()
