@@ -1,17 +1,15 @@
 import os, requests, time
 from threading import Thread
 from flask import Flask
-from datetime import datetime
 
-WEBHOOK_URL = "حط رابطك هنا"
+WEBHOOK_URL = "حط رابط الويبهوك هنا"
 SYMBOL = "BTCUSDT"
 INTERVAL = "5m"
 position = None
 
 app = Flask('')
 @app.route('/')
-def home():
-    return f"Bot Live! Pos:{position}"
+def home(): return "Bot Working"
 
 def ema(prices, period):
     k = 2 / (period + 1)
@@ -20,104 +18,55 @@ def ema(prices, period):
     return e
 
 def send(msg):
-    try:
-        requests.post(WEBHOOK_URL, json={"content": msg}, timeout=10)
-        print(msg, flush=True)
-    except: pass
+    requests.post(WEBHOOK_URL, json={"content": msg})
 
 def bot_loop():
     global position
-    print("=== BOT V2 - NO LOSS CLOSE ===", flush=True)
-    send("✅ **البوت اشتغل - V2 - ما يقفل على خسارة**")
+    print("Bot Started - Buy & Sell Only")
+    send("✅ **البوت اشتغل - يراقب شراء وبيع**")
 
     while True:
         try:
-            url = f"https://data-api.binance.vision/api/v3/klines?symbol={SYMBOL}&interval={INTERVAL}&limit=50"
-            data = requests.get(url, timeout=15).json()
+            data = requests.get(f"https://data-api.binance.vision/api/v3/klines?symbol={SYMBOL}&interval={INTERVAL}&limit=50", timeout=15).json()
             closes = [float(c[4]) for c in data]
-            closed = closes[:-1]
-            last_close = closed[-1]
-            curr = closes[-1]
+            closed = closes[:-1] # شمعة مقفلة
+            curr = closes[-1] # سعر لحظي
+            last = closed[-1]
+
             ema9 = ema(closed, 9)
             ema21 = ema(closed, 21)
 
-            print(f"CHECK {last_close:.2f} EMA9 {ema9:.2f} EMA21 {ema21:.2f} Pos={position}", flush=True)
-
-            # === دخول ===
+            # ما فيه صفقة -> دور دخول
             if position is None:
-                if last_close > ema9 and ema9 > ema21: # ترند صاعد قوي
-                    position = {'side':'LONG','entry':curr, 'time': datetime.now()}
-                    send(f"""
-🟢 **دخول LONG**
-💰 العملة: {SYMBOL}
-📈 سعر الدخول: {curr:.2f}$
-📊 EMA9: {ema9:.2f} | EMA21: {ema21:.2f}
-⏰ الوقت: {datetime.now().strftime('%I:%M %p')}
-السبب: السعر فوق EMA9 والترند صاعد
-""")
-                elif last_close < ema9 and ema9 < ema21: # ترند هابط قوي
-                    position = {'side':'SHORT','entry':curr, 'time': datetime.now()}
-                    send(f"""
-🔴 **دخول SHORT**
-💰 العملة: {SYMBOL}
-📉 سعر الدخول: {curr:.2f}$
-📊 EMA9: {ema9:.2f} | EMA21: {ema21:.2f}
-⏰ الوقت: {datetime.now().strftime('%I:%M %p')}
-السبب: السعر تحت EMA9 والترند هابط
-""")
+                if last > ema9 and ema9 > ema21:
+                    position = {'side':'LONG','entry':curr}
+                    send(f"🟢 **شراء LONG**\nالسعر: {curr:.2f}$\nEMA9 فوق EMA21")
 
-            # === خروج ===
+                elif last < ema9 and ema9 < ema21:
+                    position = {'side':'SHORT','entry':curr}
+                    send(f"🔴 **بيع SHORT**\nالسعر: {curr:.2f}$\nEMA9 تحت EMA21")
+
+            # فيه صفقة -> دور خروج
             else:
-                entry = position['entry']
-                side = position['side']
-                if side == 'LONG':
-                    pnl = ((curr - entry)/entry)*100
-                    # لا يقفل الا اذا ربحان +0.3% او خسران اكثر من -1.5% وقف خسارة
-                    if last_close < ema21:
-                        if pnl > 0.3:
-                            send(f"""
-✅ **اغلاق LONG بربح**
-💵 دخول: {entry:.2f}$ | خروج: {curr:.2f}$
-💹 الربح: +{pnl:.2f}%
-📉 السبب: تقاطع تحت EMA21
-""")
-                            position = None
-                        elif pnl < -1.5:
-                            send(f"""
-⛔ **وقف خسارة LONG**
-💵 دخول: {entry:.2f}$ | خروج: {curr:.2f}$
-📉 الخسارة: {pnl:.2f}%
-""")
-                            position = None
-                        else:
-                            print(f"HOLD LONG loss {pnl:.2f}% - waiting profit", flush=True)
+                if position['side'] == 'LONG' and last < ema21:
+                    pnl = ((curr - position['entry'])/position['entry'])*100
+                    # ما يقفل على خسارة الا اذا ربحان او خسران كثير
+                    if pnl > 0.2 or pnl < -1.5:
+                        send(f"⚪ **اغلاق شراء**\nخروج: {curr:.2f}$\nالربح: {pnl:.2f}%")
+                        position = None
 
-                else: # SHORT
-                    pnl = ((entry - curr)/entry)*100
-                    if last_close > ema21:
-                        if pnl > 0.3:
-                            send(f"""
-✅ **اغلاق SHORT بربح**
-💵 دخول: {entry:.2f}$ | خروج: {curr:.2f}$
-💹 الربح: +{pnl:.2f}%
-📈 السبب: تقاطع فوق EMA21
-""")
-                            position = None
-                        elif pnl < -1.5:
-                            send(f"""
-⛔ **وقف خسارة SHORT**
-💵 دخول: {entry:.2f}$ | خروج: {curr:.2f}$
-📉 الخسارة: {pnl:.2f}%
-""")
-                            position = None
-                        else:
-                            print(f"HOLD SHORT loss {pnl:.2f}% - waiting profit", flush=True)
+                if position['side'] == 'SHORT' and last > ema21:
+                    pnl = ((position['entry'] - curr)/position['entry'])*100
+                    if pnl > 0.2 or pnl < -1.5:
+                        send(f"⚪ **اغلاق بيع**\nخروج: {curr:.2f}$\nالربح: {pnl:.2f}%")
+                        position = None
 
+            print(f"{last:.2f} EMA9 {ema9:.2f} EMA21 {ema21:.2f} Pos {position}")
             time.sleep(60)
+
         except Exception as e:
-            print(f"Error: {e}", flush=True)
+            print(f"Error {e}")
             time.sleep(10)
 
 Thread(target=bot_loop, daemon=True).start()
-if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)))
+app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)))
