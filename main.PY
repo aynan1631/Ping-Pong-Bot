@@ -1,93 +1,81 @@
-from flask import Flask
-import threading, os, json, requests, asyncio, discord
+import requests
+import time
+import pandas as pd
 from datetime import datetime
 
-app = Flask(__name__)
-@app.route('/')
-def home(): return "Bot Trading Live"
-threading.Thread(target=lambda: app.run(host='0.0.0.0',port=8080),daemon=True).start()
+# --- إعداداتك ---
+WEBHOOK_URL = "ضع رابط الديسكورد هنا"
+SYMBOL = "BTCUSDT"
+INTERVAL = "5m"  # فريم 5 دقائق
 
-TOKEN = os.getenv("DISCORD_TOKEN")
-CHANNEL_ID = 1538955402513747981 # ايدي قناتك
+balance = 1000.0
+position = None # {'side': 'LONG'/'SHORT', 'entry': price}
+last_signal_time = 0
 
-intents = discord.Intents.default()
-intents.message_content = True
-FILE = "paper_trades.json"
+def get_klines():
+    url = f"https://api.binance.com/api/v3/klines?symbol={SYMBOL}&interval={INTERVAL}&limit=50"
+    data = requests.get(url).json()
+    df = pd.DataFrame(data, columns=['open_time','open','high','low','close','v','c','q','n','t','i','x'])
+    df['close'] = df['close'].astype(float)
+    df['open'] = df['open'].astype(float)
+    # نحسب EMA
+    df['EMA9'] = df['close'].ewm(span=9).mean()
+    df['EMA21'] = df['close'].ewm(span=21).mean()
+    return df
 
-def load():
+def send(msg):
     try:
-        with open(FILE,"r") as f: return json.load(f)
-    except: return {"balance":1000.0,"open":None,"history":[]}
+        requests.post(WEBHOOK_URL, json={"content": msg})
+    except: pass
 
-def save(d):
-    with open(FILE,"w") as f: json.dump(d,f)
-
-def klines():
+while True:
     try:
-        r = requests.get("https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=5m&limit=50",timeout=10).json()
-        return [float(x[4]) for x in r]
-    except: return None
+        df = get_klines()
+        # نأخذ آخر شمعة مقفلة (قبل الحالية)
+        prev = df.iloc[-2] 
+        curr_price = df.iloc[-1]['close']
+        
+        close = prev['close']
+        ema9 = prev['EMA9']
+        ema21 = prev['EMA21']
 
-def ema(prices,p):
-    k=2/(p+1); e=prices[0]
-    for x in prices[1:]: e=x*k+e*(1-k)
-    return e
+        # 1- حالة ما عندنا صفقة -> ندور دخول
+        if position is None:
+            # شمعة اقفلت فوق 9 = شراء
+            if close > ema9:
+                position = {'side': 'LONG', 'entry': curr_price}
+                send(f"🟢 **دخول LONG**\nالسعر: {curr_price}\nالسبب: اغلاق فوق EMA9 ({close:.2f} > {ema9:.2f})")
+            
+            # شمعة اقفلت تحت 9 = بيع
+            elif close < ema9:
+                position = {'side': 'SHORT', 'entry': curr_price}
+                send(f"🔴 **دخول SHORT**\nالسعر: {curr_price}\nالسبب: اغلاق تحت EMA9 ({close:.2f} < {ema9:.2f})")
 
-async def trading_loop(bot):
-    await bot.wait_until_ready()
-    channel = bot.get_channel(CHANNEL_ID)
-    print(f">>> Trading started in {channel} <<<")
-    while True:
-        try:
-            data = load()
-            c = klines()
-            if not c:
-                await asyncio.sleep(30); continue
+        # 2- عندنا صفقة LONG -> ننتظر اغلاق تحت 21 للخروج
+        elif position['side'] == 'LONG':
+            if close < ema21:
+                entry = position['entry']
+                pnl_percent = ((curr_price - entry) / entry) * 100
+                balance_change = balance * (pnl_percent / 100)
+                global_balance = balance + balance_change
+                
+                send(f"✅ **اغلاق LONG**\nدخول: {entry:.2f}\nخروج: {curr_price:.2f}\nالسبب: اغلاق تحت EMA21\nالربح: %{pnl_percent:.2f}\nالرصيد: {global_balance:.2f}$")
+                # هنا تحدث الرصيد الحقيقي لو تبي
+                position = None
 
-            price = c[-1]
-            e9 = ema(c,9); e21 = ema(c,21)
+        # 3- عندنا صفقة SHORT -> ننتظر اغلاق فوق 21 للخروج
+        elif position['side'] == 'SHORT':
+            if close > ema21:
+                entry = position['entry']
+                pnl_percent = ((entry - curr_price) / entry) * 100
+                balance_change = balance * (pnl_percent / 100)
+                global_balance = balance + balance_change
 
-            # اشارة دخول
-            if not data["open"]:
-                if e9 > e21: # صاعد
-                    data["open"] = {"type":"LONG","entry":price,"time":str(datetime.now())}
-                    save(data)
-                    if channel: await channel.send(f"🟢 **دخول LONG**\nالسعر: {price}\nEMA9 > EMA21")
-                elif e9 < e21: # هابط
-                    data["open"] = {"type":"SHORT","entry":price,"time":str(datetime.now())}
-                    save(data)
-                    if channel: await channel.send(f"🔴 **دخول SHORT**\nالسعر: {price}\nEMA9 < EMA21")
-            else: # خروج
-                entry = data["open"]["entry"]; typ = data["open"]["type"]
-                pnl = (price-entry)/entry*100 if typ=="LONG" else (entry-price)/entry*100
-                if abs(pnl) > 1.0: # خروج على 1%
-                    data["balance"] += data["balance"]*pnl/100*0.1 # 10% من الرصيد
-                    data["history"].append({**data["open"],"exit":price,"pnl":pnl})
-                    if channel: await channel.send(f"✅ **اغلاق {typ}**\nدخول: {entry}\nخروج: {price}\nالربح: {pnl:.2f}%\nالرصيد: ${data['balance']:.2f}")
-                    data["open"]=None
-                    save(data)
-        except Exception as ex:
-            print(f"Error: {ex}")
-        await asyncio.sleep(60)
+                send(f"✅ **اغلاق SHORT**\nدخول: {entry:.2f}\nخروج: {curr_price:.2f}\nالسبب: اغلاق فوق EMA21\nالربح: %{pnl_percent:.2f}\nالرصيد: {global_balance:.2f}$")
+                position = None
 
-class MyBot(discord.Client):
-    async def setup_hook(self):
-        self.loop.create_task(trading_loop(self))
-    async def on_message(self,m):
-        if m.author.bot: return
-        txt = m.content.strip()
-        if txt == "ايدي":
-            await m.channel.send(f"ايدي القناة: `{m.channel.id}`")
-        elif txt in ["صفقات","الرصيد","رصيد"]:
-            d=load()
-            msg=f"💰 **الرصيد:** ${d['balance']:.2f}\n"
-            if d["open"]:
-                msg+=f"📌 **مفتوحة:** {d['open']['type']} من {d['open']['entry']}"
-            else:
-                msg+="📭 لا يوجد صفقة مفتوحة"
-            await m.channel.send(msg)
-        elif txt == "CHANNEL_ID = 0":
-            await m.channel.send(f"تم التحديث! الايدي الجديد هو `{m.channel.id}`")
+        time.sleep(60) # يشيك كل دقيقة
 
-bot = MyBot(intents=intents)
-bot.run(TOKEN)
+    except Exception as e:
+        print(e)
+        time.sleep(10)
