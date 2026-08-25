@@ -1,81 +1,77 @@
 import requests
 import time
-import pandas as pd
 from datetime import datetime
 
-# --- إعداداتك ---
 WEBHOOK_URL = "ضع رابط الديسكورد هنا"
 SYMBOL = "BTCUSDT"
-INTERVAL = "5m"  # فريم 5 دقائق
+INTERVAL = "5m"
 
 balance = 1000.0
-position = None # {'side': 'LONG'/'SHORT', 'entry': price}
-last_signal_time = 0
+position = None
 
-def get_klines():
+def ema(prices, period):
+    k = 2 / (period + 1)
+    ema_val = prices[0]
+    for price in prices[1:]:
+        ema_val = price * k + ema_val * (1 - k)
+    return ema_val
+
+def get_data():
     url = f"https://api.binance.com/api/v3/klines?symbol={SYMBOL}&interval={INTERVAL}&limit=50"
     data = requests.get(url).json()
-    df = pd.DataFrame(data, columns=['open_time','open','high','low','close','v','c','q','n','t','i','x'])
-    df['close'] = df['close'].astype(float)
-    df['open'] = df['open'].astype(float)
-    # نحسب EMA
-    df['EMA9'] = df['close'].ewm(span=9).mean()
-    df['EMA21'] = df['close'].ewm(span=21).mean()
-    return df
+    closes = [float(c[4]) for c in data]
+    return closes
 
 def send(msg):
     try:
         requests.post(WEBHOOK_URL, json={"content": msg})
     except: pass
 
+print("Bot started - No Pandas - EMA9/21 strategy")
+send("✅ البوت اشتغل بالاستراتيجية الجديدة (بدون pandas)")
+
 while True:
     try:
-        df = get_klines()
-        # نأخذ آخر شمعة مقفلة (قبل الحالية)
-        prev = df.iloc[-2] 
-        curr_price = df.iloc[-1]['close']
-        
-        close = prev['close']
-        ema9 = prev['EMA9']
-        ema21 = prev['EMA21']
+        closes = get_data()
+        if len(closes) < 22:
+            time.sleep(10)
+            continue
 
-        # 1- حالة ما عندنا صفقة -> ندور دخول
+        # نحسب على الشمعة المقفلة (قبل الأخيرة)
+        closed_closes = closes[:-1]
+        last_close = closed_closes[-1]
+
+        ema9 = ema(closed_closes, 9)
+        ema21 = ema(closed_closes, 21)
+
+        curr_price = closes[-1]
+
+        print(f"{datetime.now()} | Close: {last_close} | EMA9: {ema9:.2f} | EMA21: {ema21:.2f} | Pos: {position}")
+
         if position is None:
-            # شمعة اقفلت فوق 9 = شراء
-            if close > ema9:
+            if last_close > ema9:
                 position = {'side': 'LONG', 'entry': curr_price}
-                send(f"🟢 **دخول LONG**\nالسعر: {curr_price}\nالسبب: اغلاق فوق EMA9 ({close:.2f} > {ema9:.2f})")
-            
-            # شمعة اقفلت تحت 9 = بيع
-            elif close < ema9:
+                send(f"🟢 **دخول LONG**\nالسعر: {curr_price}\nالسبب: اغلاق {last_close:.2f} فوق EMA9 {ema9:.2f}")
+            elif last_close < ema9:
                 position = {'side': 'SHORT', 'entry': curr_price}
-                send(f"🔴 **دخول SHORT**\nالسعر: {curr_price}\nالسبب: اغلاق تحت EMA9 ({close:.2f} < {ema9:.2f})")
+                send(f"🔴 **دخول SHORT**\nالسعر: {curr_price}\nالسبب: اغلاق {last_close:.2f} تحت EMA9 {ema9:.2f}")
 
-        # 2- عندنا صفقة LONG -> ننتظر اغلاق تحت 21 للخروج
         elif position['side'] == 'LONG':
-            if close < ema21:
+            if last_close < ema21:
                 entry = position['entry']
-                pnl_percent = ((curr_price - entry) / entry) * 100
-                balance_change = balance * (pnl_percent / 100)
-                global_balance = balance + balance_change
-                
-                send(f"✅ **اغلاق LONG**\nدخول: {entry:.2f}\nخروج: {curr_price:.2f}\nالسبب: اغلاق تحت EMA21\nالربح: %{pnl_percent:.2f}\nالرصيد: {global_balance:.2f}$")
-                # هنا تحدث الرصيد الحقيقي لو تبي
+                pnl = ((curr_price - entry) / entry) * 100
+                send(f"✅ **اغلاق LONG**\nدخول: {entry:.2f}\nخروج: {curr_price:.2f}\nالسبب: اغلاق تحت EMA21\nالربح: %{pnl:.2f}")
                 position = None
 
-        # 3- عندنا صفقة SHORT -> ننتظر اغلاق فوق 21 للخروج
         elif position['side'] == 'SHORT':
-            if close > ema21:
+            if last_close > ema21:
                 entry = position['entry']
-                pnl_percent = ((entry - curr_price) / entry) * 100
-                balance_change = balance * (pnl_percent / 100)
-                global_balance = balance + balance_change
-
-                send(f"✅ **اغلاق SHORT**\nدخول: {entry:.2f}\nخروج: {curr_price:.2f}\nالسبب: اغلاق فوق EMA21\nالربح: %{pnl_percent:.2f}\nالرصيد: {global_balance:.2f}$")
+                pnl = ((entry - curr_price) / entry) * 100
+                send(f"✅ **اغلاق SHORT**\nدخول: {entry:.2f}\nخروج: {curr_price:.2f}\nالسبب: اغلاق فوق EMA21\nالربح: %{pnl:.2f}")
                 position = None
 
-        time.sleep(60) # يشيك كل دقيقة
+        time.sleep(60)
 
     except Exception as e:
-        print(e)
+        print(f"Error: {e}")
         time.sleep(10)
