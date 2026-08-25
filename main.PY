@@ -1,3 +1,4 @@
+import os
 import requests
 import time
 from threading import Thread
@@ -5,21 +6,21 @@ from flask import Flask
 from datetime import datetime
 
 # --- إعداداتك ---
-WEBHOOK_URL = "ضع رابط الديسكورد هنا"
+WEBHOOK_URL = "https://discord.com/api/webhooks/ ضع حقك هنا"
 SYMBOL = "BTCUSDT"
 INTERVAL = "5m"
 
-balance = 1000.0
 position = None
 
-# --- سيرفر وهمي عشان UptimeRobot و Render ---
+# --- سيرفر عشان Render و UptimeRobot ما يطفيه ---
 app = Flask('')
 @app.route('/')
 def home():
     return "Bot is Live! EMA9/21 Strategy"
 
 def run_server():
-    app.run(host='0.0.0.0', port=10000)
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host='0.0.0.0', port=port)
 
 def ema(prices, period):
     k = 2 / (period + 1)
@@ -86,6 +87,5 @@ def bot_logic():
             print(f"Error: {e}")
             time.sleep(10)
 
-# --- تشغيل الاثنين مع بعض ---
 Thread(target=run_server).start()
 bot_logic()
