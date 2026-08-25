@@ -1,72 +1,86 @@
-import os, requests, time
-from threading import Thread
-from flask import Flask
+import os, discord, requests, asyncio
+from discord.ext import tasks
 
-WEBHOOK_URL = "حط رابط الويبهوك هنا"
-SYMBOL = "BTCUSDT"
-INTERVAL = "5m"
+TOKEN = os.environ.get("DISCORD_TOKEN")
+CHANNEL_ID = int(os.environ.get("CHANNEL_ID", "0"))
+
+intents = discord.Intents.default()
+intents.message_content = True
+client = discord.Client(intents=intents)
+
 position = None
-
-app = Flask('')
-@app.route('/')
-def home(): return "Bot Working"
+trades = []
 
 def ema(prices, period):
     k = 2 / (period + 1)
     e = prices[0]
-    for p in prices[1:]: e = p*k + e*(1-k)
+    for p in prices[1:]:
+        e = p*k + e*(1-k)
     return e
 
-def send(msg):
-    requests.post(WEBHOOK_URL, json={"content": msg})
-
-def bot_loop():
+@tasks.loop(seconds=60)
+async def check_market():
     global position
-    print("Bot Started - Buy & Sell Only")
-    send("✅ **البوت اشتغل - يراقب شراء وبيع**")
+    try:
+        r = requests.get("https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=5m&limit=50", timeout=15)
+        data = r.json()
+        closes = [float(c[4]) for c in data]
+        closed = closes[:-1]
+        curr = closes[-1]
+        last = closed[-1]
+        e9 = ema(closed, 9)
+        e21 = ema(closed, 21)
 
-    while True:
-        try:
-            data = requests.get(f"https://data-api.binance.vision/api/v3/klines?symbol={SYMBOL}&interval={INTERVAL}&limit=50", timeout=15).json()
-            closes = [float(c[4]) for c in data]
-            closed = closes[:-1] # شمعة مقفلة
-            curr = closes[-1] # سعر لحظي
-            last = closed[-1]
+        channel = client.get_channel(CHANNEL_ID)
+        if not channel: return
 
-            ema9 = ema(closed, 9)
-            ema21 = ema(closed, 21)
+        if position is None:
+            if last > e9 and e9 > e21:
+                position = {'side':'LONG','entry':curr}
+                trades.append(f"LONG {curr:.2f}")
+                await channel.send(f"🟢 **شراء LONG** @ {curr:.2f}")
+            elif last < e9 and e9 < e21:
+                position = {'side':'SHORT','entry':curr}
+                trades.append(f"SHORT {curr:.2f}")
+                await channel.send(f"🔴 **بيع SHORT** @ {curr:.2f}")
+        else:
+            if position['side']=='LONG' and last < e21:
+                pnl = ((curr-position['entry'])/position['entry'])*100
+                if pnl>0.2 or pnl<-1.5:
+                    await channel.send(f"⚪ اغلاق شراء @ {curr:.2f} ربح {pnl:.2f}%")
+                    position=None
+            if position['side']=='SHORT' and last > e21:
+                pnl = ((position['entry']-curr)/position['entry'])*100
+                if pnl>0.2 or pnl<-1.5:
+                    await channel.send(f"⚪ اغلاق بيع @ {curr:.2f} ربح {pnl:.2f}%")
+                    position=None
+    except Exception as e:
+        print(f"ERR {e}")
 
-            # ما فيه صفقة -> دور دخول
-            if position is None:
-                if last > ema9 and ema9 > ema21:
-                    position = {'side':'LONG','entry':curr}
-                    send(f"🟢 **شراء LONG**\nالسعر: {curr:.2f}$\nEMA9 فوق EMA21")
+@client.event
+async def on_ready():
+    print(f"Logged in as {client.user}")
+    check_market.start()
+    channel = client.get_channel(CHANNEL_ID)
+    if channel:
+        await channel.send("✅ **البوت اشتغل - اكتب صفقات او الرصيد**")
 
-                elif last < ema9 and ema9 < ema21:
-                    position = {'side':'SHORT','entry':curr}
-                    send(f"🔴 **بيع SHORT**\nالسعر: {curr:.2f}$\nEMA9 تحت EMA21")
+@client.event
+async def on_message(self=None, message=None):
+    # fix for on_message signature
+    msg = message
+    if msg.author == client.user: return
+    if msg.channel.id!= CHANNEL_ID: return
+    txt = msg.content.strip()
+    if txt == "صفقات":
+        if not trades:
+            await msg.channel.send("لا يوجد صفقات بعد")
+        else:
+            await msg.channel.send("\n".join(trades[-10:]))
+    elif txt == "الرصيد":
+        if position:
+            await msg.channel.send(f"داخل صفقة {position['side']} دخول {position['entry']:.2f}")
+        else:
+            await msg.channel.send("ما في صفقة حاليا - الرصيد فاضي")
 
-            # فيه صفقة -> دور خروج
-            else:
-                if position['side'] == 'LONG' and last < ema21:
-                    pnl = ((curr - position['entry'])/position['entry'])*100
-                    # ما يقفل على خسارة الا اذا ربحان او خسران كثير
-                    if pnl > 0.2 or pnl < -1.5:
-                        send(f"⚪ **اغلاق شراء**\nخروج: {curr:.2f}$\nالربح: {pnl:.2f}%")
-                        position = None
-
-                if position['side'] == 'SHORT' and last > ema21:
-                    pnl = ((position['entry'] - curr)/position['entry'])*100
-                    if pnl > 0.2 or pnl < -1.5:
-                        send(f"⚪ **اغلاق بيع**\nخروج: {curr:.2f}$\nالربح: {pnl:.2f}%")
-                        position = None
-
-            print(f"{last:.2f} EMA9 {ema9:.2f} EMA21 {ema21:.2f} Pos {position}")
-            time.sleep(60)
-
-        except Exception as e:
-            print(f"Error {e}")
-            time.sleep(10)
-
-Thread(target=bot_loop, daemon=True).start()
-app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)))
+client.run(TOKEN)
