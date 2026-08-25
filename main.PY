@@ -5,18 +5,15 @@ from threading import Thread
 from flask import Flask
 from datetime import datetime
 
-# --- إعداداتك ---
-WEBHOOK_URL = "https://discord.com/api/webhooks/ ضع حقك هنا"
+WEBHOOK_URL = "حط رابطك هنا"
 SYMBOL = "BTCUSDT"
 INTERVAL = "5m"
-
 position = None
 
-# --- سيرفر عشان Render و UptimeRobot ما يطفيه ---
 app = Flask('')
 @app.route('/')
 def home():
-    return "Bot is Live! EMA9/21 Strategy"
+    return f"Bot Live! Pos: {position} Time: {datetime.now()}"
 
 def run_server():
     port = int(os.environ.get("PORT", 10000))
@@ -30,25 +27,34 @@ def ema(prices, period):
     return ema_val
 
 def get_data():
-    url = f"https://api.binance.com/api/v3/klines?symbol={SYMBOL}&interval={INTERVAL}&limit=50"
-    data = requests.get(url).json()
-    closes = [float(c[4]) for c in data]
-    return closes
+    try:
+        url = f"https://api.binance.com/api/v3/klines?symbol={SYMBOL}&interval={INTERVAL}&limit=50"
+        r = requests.get(url, timeout=10)
+        data = r.json()
+        closes = [float(c[4]) for c in data]
+        return closes
+    except Exception as e:
+        print(f"Binance Error: {e}")
+        return None
 
 def send(msg):
     try:
-        requests.post(WEBHOOK_URL, json={"content": msg})
-    except: pass
+        requests.post(WEBHOOK_URL, json={"content": msg}, timeout=10)
+        print(f"Sent to Discord: {msg}")
+    except Exception as e:
+        print(f"Discord Error: {e}")
 
 def bot_logic():
     global position
-    print("Bot started - EMA9/21 No TP")
-    send("✅ البوت اشتغل - استراتيجية EMA9/21 بربح مفتوح")
+    print("BOT THREAD STARTED!")
+    time.sleep(5)
+    send("✅ البوت اشتغل - EMA9/21 - Render Live")
 
     while True:
         try:
             closes = get_data()
-            if len(closes) < 22:
+            if not closes or len(closes) < 22:
+                print("No data, retry in 10s")
                 time.sleep(10)
                 continue
 
@@ -58,34 +64,28 @@ def bot_logic():
             ema21 = ema(closed_closes, 21)
             curr_price = closes[-1]
 
-            print(f"{datetime.now()} | Close:{last_close:.2f} EMA9:{ema9:.2f} EMA21:{ema21:.2f} Pos:{position}")
+            print(f"CHECK | Close:{last_close:.2f} EMA9:{ema9:.2f} EMA21:{ema21:.2f} Pos:{position}", flush=True)
 
             if position is None:
                 if last_close > ema9:
                     position = {'side': 'LONG', 'entry': curr_price}
-                    send(f"🟢 **دخول LONG**\nالسعر: {curr_price}\nاغلاق {last_close:.2f} فوق EMA9")
+                    send(f"🟢 **دخول LONG** السعر: {curr_price}")
                 elif last_close < ema9:
                     position = {'side': 'SHORT', 'entry': curr_price}
-                    send(f"🔴 **دخول SHORT**\nالسعر: {curr_price}\nاغلاق {last_close:.2f} تحت EMA9")
-
-            elif position['side'] == 'LONG':
-                if last_close < ema21:
-                    entry = position['entry']
-                    pnl = ((curr_price - entry) / entry) * 100
-                    send(f"✅ **اغلاق LONG**\nخروج: {curr_price:.2f}\nالسبب: اغلاق تحت EMA21\nربح: %{pnl:.2f}")
-                    position = None
-
-            elif position['side'] == 'SHORT':
-                if last_close > ema21:
-                    entry = position['entry']
-                    pnl = ((entry - curr_price) / entry) * 100
-                    send(f"✅ **اغلاق SHORT**\nخروج: {curr_price:.2f}\nالسبب: اغلاق فوق EMA21\nربح: %{pnl:.2f}")
-                    position = None
+                    send(f"🔴 **دخول SHORT** السعر: {curr_price}")
+            elif position['side'] == 'LONG' and last_close < ema21:
+                pnl = ((curr_price - position['entry']) / position['entry']) * 100
+                send(f"✅ **اغلاق LONG** ربح: %{pnl:.2f}")
+                position = None
+            elif position['side'] == 'SHORT' and last_close > ema21:
+                pnl = ((position['entry'] - curr_price) / position['entry']) * 100
+                send(f"✅ **اغلاق SHORT** ربح: %{pnl:.2f}")
+                position = None
 
             time.sleep(60)
         except Exception as e:
-            print(f"Error: {e}")
+            print(f"Logic Error: {e}")
             time.sleep(10)
 
-Thread(target=run_server).start()
+Thread(target=run_server, daemon=True).start()
 bot_logic()
