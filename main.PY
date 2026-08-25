@@ -3,7 +3,8 @@ from threading import Thread
 from flask import Flask
 from datetime import datetime
 
-WEBHOOK_URL = "حط رابط الديسكورد هنا"
+# حط رابطك الحقيقي هنا بين القوسين
+WEBHOOK_URL = "https://discord.com/api/webhooks/ضع_الرابط_الحقيقي_هنا"
 SYMBOL = "BTCUSDT"
 INTERVAL = "5m"
 position = None
@@ -11,7 +12,7 @@ position = None
 app = Flask('')
 @app.route('/')
 def home():
-    return f"Bot Live! Pos:{position} Time:{datetime.now()} - OK"
+    return f"Bot Live! Pos:{position} Time:{datetime.now()}"
 
 def ema(prices, period):
     k = 2 / (period + 1)
@@ -22,24 +23,48 @@ def ema(prices, period):
 
 def send(msg):
     try:
+        # لا ترسل اذا الرابط وهمي
+        if "ضع_الرابط" in WEBHOOK_URL or "حط رابط" in WEBHOOK_URL:
+            print("!!! حط رابط الديسكورد الحقيقي!!!", flush=True)
+            return
         requests.post(WEBHOOK_URL, json={"content": msg}, timeout=10)
-        print(f"Discord OK: {msg}", flush=True)
+        print(f"Discord Sent: {msg}", flush=True)
     except Exception as e:
         print(f"Discord Fail: {e}", flush=True)
 
 def bot_loop():
     global position
-    print("=== BOT LOOP STARTED ===", flush=True)
+    print("=== BOT LOOP STARTED - Fix Binance US ===", flush=True)
     time.sleep(3)
-    send("✅ البوت اشتغل - النسخة المصلحة EMA9/21")
+    send("✅ البوت اشتغل - تم اصلاح مشكلة بينانس")
 
     while True:
         try:
-            url = f"https://api.binance.com/api/v3/klines?symbol={SYMBOL}&interval={INTERVAL}&limit=50"
-            r = requests.get(url, timeout=15)
-            data = r.json()
-            closes = [float(c[4]) for c in data]
+            # هذا الرابط يشتغل في امريكا، الأول محجوب
+            urls = [
+                f"https://data-api.binance.vision/api/v3/klines?symbol={SYMBOL}&interval={INTERVAL}&limit=50",
+                f"https://api.binance.com/api/v3/klines?symbol={SYMBOL}&interval={INTERVAL}&limit=50"
+            ]
+            data = None
+            for url in urls:
+                try:
+                    r = requests.get(url, timeout=15)
+                    j = r.json()
+                    # تأكد انه مصفوفة شموع مو رسالة خطأ
+                    if isinstance(j, list) and len(j) > 20:
+                        data = j
+                        break
+                    else:
+                        print(f"Binance response not list: {j}", flush=True)
+                except Exception as e:
+                    print(f"Try {url} failed: {e}", flush=True)
 
+            if not data:
+                print("No valid data, retry 15s", flush=True)
+                time.sleep(15)
+                continue
+
+            closes = [float(c[4]) for c in data]
             closed = closes[:-1]
             last_close = closed[-1]
             ema9 = ema(closed, 9)
@@ -69,7 +94,6 @@ def bot_loop():
             print(f"ERROR in loop: {e}", flush=True)
             time.sleep(10)
 
-# هنا الحل: البوت في الخلفية، و Flask في الأمام
 Thread(target=bot_loop, daemon=True).start()
 
 if __name__ == "__main__":
