@@ -8,7 +8,7 @@ SYMBOLS = ["WIFUSDT", "PEPEUSDT", "DOGEUSDT", "BONKUSDT", "SHIBUSDT", "FLOKIUSDT
 
 app = Flask('')
 @app.route('/')
-def home(): return "Meme Fixed Bot"
+def home(): return "Meme Fixed Bot - Target 10$"
 threading.Thread(target=lambda: app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000))), daemon=True).start()
 
 intents = discord.Intents.default()
@@ -70,25 +70,38 @@ async def check_market():
         for sym in SYMBOLS:
             try:
                 curr=float(requests.get(f"https://data-api.binance.vision/api/v3/ticker/price?symbol={sym}",timeout=10).json()['price'])
-                klines=requests.get(f"https://data-api.binance.vision/api/v3/klines?symbol={sym}&interval=1m&limit=50",timeout=15).json()
+                klines=requests.get(f"https://data-api.binance.vision/api/v3/klines?symbol={sym}&interval=5m&limit=50",timeout=15).json()
                 closes=[float(c[4]) for c in klines]
                 rsi=calc_rsi(closes,6)
                 h=HOLDINGS[sym]
 
-                # قفل على 60 بشرط ربح
-                if h['side']=="LONG" and h['qty']>0 and rsi>=60 and curr>h['avg']:
-                    profit=(curr-h['avg'])*h['qty']
-                    USDT+=h['qty']*curr
-                    HOLDINGS[sym]={'qty':0,'avg':0,'b30':False,'b20':False,'b10':False,'side':None,'last':0}
-                    save_state()
-                    await ch.send(f"✅ **قفل {sym} @ {curr:.8f} RSI {rsi:.1f} ربح +${profit:.2f}**\n💵 الرصيد ${USDT:.2f}")
-                    continue
+                # --- نظام البيع الجديد لهدف 10$ - 20$ ---
+                if h['side']=="LONG" and h['qty']>0:
+                    profit_pct = ((curr - h['avg']) / h['avg']) * 100
+
+                    # بيع ربح 10% = 10$ على كل 100$ او تشبع RSI 75
+                    if profit_pct >= 10 or rsi >= 75:
+                        profit=(curr-h['avg'])*h['qty']
+                        USDT+=h['qty']*curr
+                        HOLDINGS[sym]={'qty':0,'avg':0,'b30':False,'b20':False,'b10':False,'side':None,'last':0}
+                        save_state()
+                        await ch.send(f"✅ **قفل {sym} @ {curr:.8f} RSI {rsi:.1f} ربح {profit_pct:.1f}% +${profit:.2f}**\n💵 الرصيد ${USDT:.2f}")
+                        continue
+
+                    # ستوب لوس -15% عشان لا يعلق بالعملة
+                    if profit_pct <= -15:
+                        loss=(curr-h['avg'])*h['qty']
+                        USDT+=h['qty']*curr
+                        HOLDINGS[sym]={'qty':0,'avg':0,'b30':False,'b20':False,'b10':False,'side':None,'last':0}
+                        save_state()
+                        await ch.send(f"❌ **ستوب {sym} @ {curr:.8f} خسارة {profit_pct:.1f}% {loss:.2f}$**\n💵 الرصيد ${USDT:.2f}")
+                        continue
 
                 # فلتر RSI - تجاهل 0 واكثر من 30
                 if rsi < 8 or rsi > 30:
                     continue
 
-                # منع الشراء الجماعي - عملة كل 5 دقايق فقط
+                # عملة كل 5 دقايق فقط
                 if time.time() - last_any_buy < 300:
                     continue
                 if time.time() - h['last'] < 300:
@@ -103,8 +116,8 @@ async def check_market():
                     h['qty']=new_qty; h['avg']=avg; h['b30']=True; h['side']="LONG"
                     h['last']=time.time(); last_any_buy=time.time()
                     USDT-=amt; save_state()
-                    await ch.send(f"🟢 **{sym} شراء 1 RSI {rsi:.1f} @ {curr:.8f}**\n10%=${amt:.2f} متوسط {avg:.8f} رصيد ${USDT:.2f}")
-                    break # يشتري عملة وحدة فقط كل لفة
+                    await ch.send(f"🟢 **{sym} شراء 1 RSI {rsi:.1f} @ {curr:.8f}**\n10%=${amt:.2f} متوسط {avg:.8f} رصيد ${USDT:.2f} - الهدف +10%")
+                    break
 
                 # تبريد 2 - RSI 20
                 if h['b30'] and not h['b20'] and rsi<=20 and USDT>=20:
@@ -150,13 +163,19 @@ async def on_message(m):
         txt=f"💵 USDT: ${USDT:.2f}\n"
         for sym,h in HOLDINGS.items():
             if h['qty']>0:
-                txt+=f"{sym}: qty {h['qty']:.4f} avg {h['avg']:.8f} B:{h['b30']}{h['b20']}{h['b10']}\n"
+                curr_price = 0
+                try:
+                    curr_price=float(requests.get(f"https://data-api.binance.vision/api/v3/ticker/price?symbol={sym}",timeout=5).json()['price'])
+                    pnl = ((curr_price - h['avg'])/h['avg']*100) if h['avg'] else 0
+                    txt+=f"{sym}: {pnl:.1f}% avg {h['avg']:.8f}\n"
+                except:
+                    txt+=f"{sym}: qty {h['qty']:.4f} avg {h['avg']:.8f}\n"
         await m.channel.send(txt)
     if m.content.strip()=="تصفير":
         USDT=1000.0
         last_any_buy=0
         HOLDINGS={sym:{'qty':0,'avg':0,'b30':False,'b20':False,'b10':False,'side':None,'last':0} for sym in SYMBOLS}
         save_state()
-        await m.channel.send("✅ تم التصفير 1000$ - يشتري عملة كل 5 دقايق فقط RSI بين 8-30")
+        await m.channel.send("✅ تم التصفير 1000$ - هدف 10% = 10$ لكل صفقة - فريم 5m - RSI 8-30")
 
 client.run(TOKEN)
