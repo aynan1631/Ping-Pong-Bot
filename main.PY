@@ -6,7 +6,7 @@ TOKEN = os.environ.get("DISCORD_TOKEN")
 
 app = Flask('')
 @app.route('/')
-def home(): return "Bot Live 1m Cross Only"
+def home(): return "Bot Live 1m Real Price"
 threading.Thread(target=lambda: app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000))), daemon=True).start()
 
 intents = discord.Intents.default()
@@ -32,13 +32,16 @@ def ema(prices, period):
 async def check_market():
     global position, BALANCE, total_profit, total_loss
     try:
+        # 1- السعر اللحظي الحقيقي (نفس المنصة)
+        price_r = requests.get("https://data-api.binance.vision/api/v3/ticker/price?symbol=BTCUSDT", timeout=10)
+        curr = float(price_r.json()['price'])
+
+        # 2- الشموع لحساب التقاطع فقط
         r = requests.get("https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=50", timeout=15)
         closes = [float(c[4]) for c in r.json()]
-        closed = closes[:-1]
-        curr = closes[-1]
-        last = closed[-1]
-        e9 = ema(closed, 9)
-        e21 = ema(closed, 21)
+        last = closes[-1]
+        e9 = ema(closes, 9)
+        e21 = ema(closes, 21)
 
         channel = None
         for guild in client.guilds:
@@ -48,7 +51,6 @@ async def check_market():
                     break
             if channel: break
 
-        # حساب الربح الحالي
         current_pnl = 0
         if position:
             if position['side']=='LONG':
@@ -56,7 +58,7 @@ async def check_market():
             else:
                 current_pnl = (position['entry'] - curr) * QTY
 
-        # 1- اذا حقق 5 سنت يقفل مباشرة
+        # يقفل على 5 سنت ربح
         if position and current_pnl >= TARGET:
             BALANCE += current_pnl
             total_profit += current_pnl
@@ -65,37 +67,26 @@ async def check_market():
             position = None
             return
 
-        # 2- اذا ما حقق الهدف، يقفل فقط مع تقاطع عكسي
+        # فتح وقفل مع التقاطع فقط
         if position is None:
             if last > e9 and e9 > e21:
                 position = {'side':'LONG','entry':curr}
-                if channel: await channel.send(f"🟢 **LONG** @ {curr:.2f} | فريم 1د")
+                if channel: await channel.send(f"🟢 **LONG** @ {curr:.2f}\nالسعر لحظي من Binance")
             elif last < e9 and e9 < e21:
                 position = {'side':'SHORT','entry':curr}
-                if channel: await channel.send(f"🔴 **SHORT** @ {curr:.2f} | فريم 1د")
+                if channel: await channel.send(f"🔴 **SHORT** @ {curr:.2f}\nالسعر لحظي من Binance")
         else:
-            if position['side']=='LONG' and last < e9: # تقاطع عكسي
+            if position['side']=='LONG' and last < e9:
                 BALANCE += current_pnl
-                if current_pnl >= 0:
-                    total_profit += current_pnl
-                    msg = f"⚪ قفل LONG بتقاطع @ {curr:.2f} ربح ${current_pnl:.4f}"
-                else:
-                    total_loss += abs(current_pnl)
-                    msg = f"⚪ قفل LONG بتقاطع @ {curr:.2f} خسارة ${current_pnl:.4f}"
-                if channel: await channel.send(f"{msg}\n💵 الرصيد: ${BALANCE:.2f}")
-                trades.append(msg)
+                if current_pnl >= 0: total_profit += current_pnl
+                else: total_loss += abs(current_pnl)
+                if channel: await channel.send(f"⚪ قفل LONG بتقاطع @ {curr:.2f} PnL ${current_pnl:.4f}\n💵 الرصيد: ${BALANCE:.2f}")
                 position = None
-
             elif position['side']=='SHORT' and last > e9:
                 BALANCE += current_pnl
-                if current_pnl >= 0:
-                    total_profit += current_pnl
-                    msg = f"⚪ قفل SHORT بتقاطع @ {curr:.2f} ربح ${current_pnl:.4f}"
-                else:
-                    total_loss += abs(current_pnl)
-                    msg = f"⚪ قفل SHORT بتقاطع @ {curr:.2f} خسارة ${current_pnl:.4f}"
-                if channel: await channel.send(f"{msg}\n💵 الرصيد: ${BALANCE:.2f}")
-                trades.append(msg)
+                if current_pnl >= 0: total_profit += current_pnl
+                else: total_loss += abs(current_pnl)
+                if channel: await channel.send(f"⚪ قفل SHORT بتقاطع @ {curr:.2f} PnL ${current_pnl:.4f}\n💵 الرصيد: ${BALANCE:.2f}")
                 position = None
 
     except Exception as e:
@@ -110,7 +101,6 @@ async def on_ready():
 async def on_message(m):
     if m.author == client.user: return
     txt = m.content.strip()
-
     if txt == "صفقات":
         await m.channel.send("\n".join(trades[-10:]) if trades else "لا يوجد صفقات")
     elif txt == "الرصيد":
