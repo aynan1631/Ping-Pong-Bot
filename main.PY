@@ -1,60 +1,71 @@
 import discord
 from discord.ext import commands
-import requests
-from datetime import datetime
 import os
 from flask import Flask
 from threading import Thread
+from datetime import datetime
 
-# سيرفر وهمي عشان Render ما يزعجنا
 app = Flask('')
 @app.route('/')
-def home(): return "البوت شغال ✅"
+def home(): return "Bot Demo 100% - وهمي"
 def run(): app.run(host='0.0.0.0', port=10000)
 Thread(target=run, daemon=True).start()
+
+# ===== هنا تعدل صفقاتك الوهمية =====
+BALANCE_START = 1200.0
+
+positions = [
+    {"symbol": "FLOKIUSDT", "side": "SHORT", "entry": 0.00002575, "tp": 0.00002523, "pnl": 0.91, "time": "2026-05-13 17:22", "status": "مغلقة ✅ رابحة"},
+    {"symbol": "WIFUSDT", "side": "LONG", "entry": 0.22623, "tp": 0.23075, "pnl": -4.08, "time": "2026-05-13 09:17", "status": "مفتوحة ⏳"},
+    {"symbol": "PEPEUSDT", "side": "SHORT", "entry": 0.00000372, "tp": 0.00000365, "pnl": 0.93, "time": "2026-05-13 17:17", "status": "مغلقة ✅ رابحة"},
+]
 
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-positions = [
-    {"symbol": "FLOKIUSDT", "side": "SHORT", "entry": 0.00002575, "current": 0.00002523, "pnl": 0.91, "time": "2026-05-13 17:22:03", "executed": True},
-    {"symbol": "WIFUSDT", "side": "LONG", "entry": 0.22623, "current": 0.2196, "pnl": -4.08, "time": "2026-05-13 09:17:27", "executed": False},
-    {"symbol": "PEPEUSDT", "side": "SHORT", "entry": 0.00000372, "current": 0.00000363, "pnl": 0.93, "time": "2026-05-13 17:17:03", "executed": True},
-]
-BALANCE_START = 1200
-
 @bot.event
 async def on_ready():
-    print(f"البوت شغال ✅ {bot.user}")
+    print(f"البوت الوهمي شغال ✅ {bot.user}")
 
-@bot.command(name="سعر")
-async def price(ctx, coin="bitcoin"):
-    try:
-        r = requests.get(f"https://api.coingecko.com/api/v3/simple/price?ids={coin}&vs_currencies=usd", timeout=10).json()
-        await ctx.send(f"💰 سعر {coin}: ${r[coin]['usd']}")
-    except:
-        await ctx.send("جرب: !سعر bitcoin")
+async def send_report(ctx):
+    realized = sum(p['pnl'] for p in positions if "مغلقة" in p['status'])
+    unrealized = sum(p['pnl'] for p in positions if "مفتوحة" in p['status'])
+    current = BALANCE_START + realized + unrealized
+    
+    wins = len([p for p in positions if p['pnl'] > 0 and "مغلقة" in p['status']])
+    losses = len([p for p in positions if p['pnl'] < 0 and "مغلقة" in p['status']])
+    closed_count = wins + losses
+    winrate = (wins / closed_count * 100) if closed_count > 0 else 0
+
+    # جدول مرتب بالإنجليزي عشان ما يتلخبط
+    table = "```\n"
+    table += f"{'SYMBOL':<12} {'SIDE':<10} {'ENTRY':<14} {'PNL':<10} STATUS\n"
+    table += "-"*60 + "\n"
+    for p in positions:
+        table += f"{p['symbol']:<12} {p['side']:<10} {p['entry']:<14} {p['pnl']:+.2f}$   {p['status']}\n"
+    table += "```"
+
+    embed = discord.Embed(title="📊 تقرير الأداء الوهمي - اختبار 100%", description=table, color=0x00ff00)
+    embed.add_field(name="💰 ابتدائي", value=f"{BALANCE_START}$", inline=True)
+    embed.add_field(name="💵 الحالي", value=f"{current:.2f}$", inline=True)
+    embed.add_field(name="📈 محقق", value=f"{realized:+.2f}$", inline=True)
+    embed.add_field(name="📉 عائم", value=f"{unrealized:+.2f}$", inline=True)
+    embed.add_field(name="🏆 نسبة النجاح", value=f"{winrate:.1f}% ({wins} ربح / {losses} خسارة)", inline=True)
+    embed.add_field(name="📊 الإجمالي", value=f"{realized+unrealized:+.2f}$", inline=True)
+    
+    embed.set_footer(text=f"النظام وهمي للاختبار - {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    await ctx.channel.send(embed=embed)
 
 @bot.command(name="الرصيد")
-async def balance_report(ctx):
-    total_realized = sum(p['pnl'] for p in positions if p['executed'])
-    total_unrealized = sum(p['pnl'] for p in positions if not p['executed'])
-    current_balance = BALANCE_START + total_realized + total_unrealized
+async def bal(ctx): await send_report(ctx)
 
-    lines = []
-    lines.append(f"{'العملة':<10} {'النوع':<12} {'دخول':<12} {'هدف':<12} {'ربح':<8} {'الحالة'}")
-    lines.append("-"*85)
-    for p in positions:
-        target = p['entry']*0.98 if p['side']=="SHORT" else p['entry']*1.02
-        side_text = "بيع SHORT" if p['side']=="SHORT" else "شراء LONG"
-        status = "✅ منفذ" if p['executed'] else "⏳ مفتوح"
-        lines.append(f"{p['symbol']:<10} {side_text:<12} {p['entry']:<12.8f} {target:<12.8f} {p['pnl']:+.2f}$ {status}")
-
-    table = "\n".join(lines)
-    embed = discord.Embed(title=f"📊 التقرير الشامل", description=f"```\n{table}\n```", color=0x00ff00)
-    embed.add_field(name="💰 الابتدائي", value=f"{BALANCE_START}$", inline=True)
-    embed.add_field(name="💵 الحالي", value=f"{current_balance:.2f}$", inline=True)
-    await ctx.send(embed=embed)
+@bot.event
+async def on_message(message):
+    if message.author == bot.user: return
+    if "الرصيد" in message.content or "التقرير" in message.content:
+        await send_report(message)
+        return
+    await bot.process_commands(message)
 
 bot.run(os.getenv("DISCORD_TOKEN"))
