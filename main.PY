@@ -10,7 +10,7 @@ def home(): return "RSI 2-Level Strategy"
 def run(): app.run(host='0.0.0.0', port=10000)
 Thread(target=run, daemon=True).start()
 
-TIMEFRAME = "5m"
+TIMEFRAME = "1m"
 COINS = ["DEXEUSDT","BICOUSDT","MOVRUSDT","TUTUSDT","BMTUSDT","FETUSDT","HEMIUSDT","ZROUSDT","MSTRUSDT","HEIUSDT"]
 data = {}
 
