@@ -10,7 +10,7 @@ def home(): return "MACD EMA Strategy"
 def run(): app.run(host='0.0.0.0', port=10000)
 Thread(target=run, daemon=True).start()
 
-TIMEFRAME = "60m"
+TIMEFRAME = "1m"
 COINS = ["PROMUSDT","ZKUSDT","DEXEUSDT","TUTUSDT","PUMPUSDT","UNIUSDT","NILUSDT","CHIPUSDT","GIGGLEUSDT","DASHUSDT"]
 data = {}
 
