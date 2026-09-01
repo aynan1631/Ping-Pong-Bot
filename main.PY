@@ -6,7 +6,7 @@ from datetime import datetime
 
 app = Flask('')
 @app.route('/')
-def home(): return "V5 DCA 3x50"
+def home(): return "V5.1 DCA Manual Close"
 def run(): app.run(host='0.0.0.0', port=10000)
 Thread(target=run, daemon=True).start()
 
@@ -57,53 +57,48 @@ async def loop():
         if not ind or not price: continue
         d=data[sym]; d.update({"ema50":ind["ema50"],"ema200":ind["ema200"],"macd":ind["macd"],"adx":ind["adx"],"price":price})
 
-        # حساب الربح الإجمالي لكل العملة
-        total_long_pnl = sum((price-t["price"])/t["price"]*t["amount"] for t in d["longs"]) if d["longs"] else 0
-        total_short_pnl = sum((t["price"]-price)/t["price"]*t["amount"] for t in d["shorts"]) if d["shorts"] else 0
+        total_long = sum((price-t["price"])/t["price"]*t["amount"] for t in d["longs"]) if d["longs"] else 0
+        total_short = sum((t["price"]-price)/t["price"]*t["amount"] for t in d["shorts"]) if d["shorts"] else 0
 
-        # قفل LONG
-        if d["longs"]:
-            if total_long_pnl>=24 or total_long_pnl<=-9 or ind["ema50"]<ind["ema200"] or ind["macd"]<0:
-                d["pnl"]+=total_long_pnl; d["wins"]+=1 if total_long_pnl>=0 else 0; d["losses"]+=1 if total_long_pnl<0 else 0
-                await ch.send(f"{'💰' if total_long_pnl>0 else '🛑'} **قفل LONG {sym} {len(d['longs'])} دفعات {total_long_pnl:+.2f}$**\nEMA50 {ind['ema50']:.2f} / 200 {ind['ema200']:.2f} ADX {ind['adx']:.0f}")
-                d["longs"]=[]
+        if d["longs"] and (total_long>=24 or total_long<=-9 or ind["ema50"]<ind["ema200"] or ind["macd"]<0):
+            d["pnl"]+=total_long; d["wins"]+=1 if total_long>=0 else 0; d["losses"]+=1 if total_long<0 else 0
+            await ch.send(f"{'💰' if total_long>0 else '🛑'} **قفل AUTO LONG {sym} {len(d['longs'])} دفعات {total_long:+.2f}$ ADX {ind['adx']:.0f}**")
+            d["longs"]=[]
+        if d["shorts"] and (total_short>=24 or total_short<=-9 or ind["ema50"]>ind["ema200"] or ind["macd"]>0):
+            d["pnl"]+=total_short; d["wins"]+=1 if total_short>=0 else 0; d["losses"]+=1 if total_short<0 else 0
+            await ch.send(f"{'💰' if total_short>0 else '🛑'} **قفل AUTO SHORT {sym} {len(d['shorts'])} دفعات {total_short:+.2f}$ ADX {ind['adx']:.0f}**")
+            d["shorts"]=[]
 
-        # قفل SHORT
-        if d["shorts"]:
-            if total_short_pnl>=24 or total_short_pnl<=-9 or ind["ema50"]>ind["ema200"] or ind["macd"]>0:
-                d["pnl"]+=total_short_pnl; d["wins"]+=1 if total_short_pnl>=0 else 0; d["losses"]+=1 if total_short_pnl<0 else 0
-                await ch.send(f"{'💰' if total_short_pnl>0 else '🛑'} **قفل SHORT {sym} {len(d['shorts'])} دفعات {total_short_pnl:+.2f}$**\nEMA50 {ind['ema50']:.2f} / 200 {ind['ema200']:.2f} ADX {ind['adx']:.0f}")
-                d["shorts"]=[]
+        if d["longs"] or d["shorts"] or ind["adx"]<12:
+            if d["longs"] or d["shorts"]:
+                pass
+            else:
+                continue
 
-        if ind["adx"]<12: continue
-
-        # شروط الترند
         long_trend = ind["ema50"]>ind["ema200"] and price>ind["ema50"] and ind["macd"]>0 and ind["pdi"]>ind["mdi"]
         short_trend = ind["ema50"]<ind["ema200"] and price<ind["ema50"] and ind["macd"]<0 and ind["mdi"]>ind["pdi"]
 
-        # دخول LONG دفعات
         if long_trend:
             if len(d["longs"])==0:
                 d["longs"].append({"price":price,"amount":50})
-                await ch.send(f"📥 **شراء 1/3 ترند {sym} 50$** EMA50 {ind['ema50']:.2f}>200 {ind['ema200']:.2f} MACD {ind['macd']:.4f}>0 ADX {ind['adx']:.0f} سعر {price:.2f}")
+                await ch.send(f"📥 **شراء 1/3 {sym} 50$** دخول {price:.2f} EMA50 {ind['ema50']:.2f}>200 {ind['ema200']:.2f} MACD {ind['macd']:.4f}>0 ADX {ind['adx']:.0f}")
             elif len(d["longs"])==1 and price >= d["longs"][-1]["price"]*1.01:
                 d["longs"].append({"price":price,"amount":50})
-                await ch.send(f"📥 **شراء 2/3 ترند {sym} 50$** متوسط {sum(t['price'] for t in d['longs'])/2:.2f} ADX {ind['adx']:.0f}")
+                await ch.send(f"📥 **شراء 2/3 {sym} 50$** دخول {price:.2f} متوسط {(d['longs'][0]['price']+d['longs'][1]['price'])/2:.2f}")
             elif len(d["longs"])==2 and price >= d["longs"][-1]["price"]*1.01 and ind["adx"]>25:
                 d["longs"].append({"price":price,"amount":50})
-                await ch.send(f"📥 **شراء 3/3 ترند {sym} 50$** إجمالي 150$ ADX قوي {ind['adx']:.0f}")
+                await ch.send(f"📥 **شراء 3/3 {sym} 50$** إجمالي 150$ دخول {price:.2f} ADX قوي {ind['adx']:.0f}")
 
-        # دخول SHORT دفعات (مثل صورتك)
         if short_trend:
             if len(d["shorts"])==0:
                 d["shorts"].append({"price":price,"amount":50})
-                await ch.send(f"📤 **بيع 1/3 ترند {sym} 50$** EMA50 {ind['ema50']:.2f}<200 {ind['ema200']:.2f} MACD {ind['macd']:.4f}<0 ADX {ind['adx']:.0f} سعر {price:.2f}")
+                await ch.send(f"📤 **بيع 1/3 {sym} 50$** دخول {price:.2f} EMA50 {ind['ema50']:.2f}<200 {ind['ema200']:.2f} MACD {ind['macd']:.4f}<0 ADX {ind['adx']:.0f}")
             elif len(d["shorts"])==1 and price <= d["shorts"][-1]["price"]*0.99:
                 d["shorts"].append({"price":price,"amount":50})
-                await ch.send(f"📤 **بيع 2/3 ترند {sym} 50$** متوسط {sum(t['price'] for t in d['shorts'])/2:.2f} ADX {ind['adx']:.0f}")
+                await ch.send(f"📤 **بيع 2/3 {sym} 50$** دخول {price:.2f} متوسط {(d['shorts'][0]['price']+d['shorts'][1]['price'])/2:.2f}")
             elif len(d["shorts"])==2 and price <= d["shorts"][-1]["price"]*0.99 and ind["adx"]>25:
                 d["shorts"].append({"price":price,"amount":50})
-                await ch.send(f"📤 **بيع 3/3 ترند {sym} 50$** إجمالي 150$ ADX قوي {ind['adx']:.0f}")
+                await ch.send(f"📤 **بيع 3/3 {sym} 50$** إجمالي 150$ دخول {price:.2f} ADX قوي {ind['adx']:.0f}")
 
 @bot.event
 async def on_ready():
@@ -113,25 +108,46 @@ async def on_ready():
 @bot.event
 async def on_message(m):
     if m.author==bot.user: return
+
     if "الرصيد" in m.content:
-        embed=discord.Embed(title=f"📊 V5 DCA 3x50$ | 1h هدف 24$ وقف 9$ | ADX>12",color=0xFF0000)
+        embed=discord.Embed(title=f"📊 V5.1 DCA 3x50$ | 1h | هدف 24$ وقف 9$ | اقفل يدوي متاح",color=0x00ff00)
         total=0
         for sym in COINS:
             d=data.get(sym)
             if not d: continue
             pr=get_price(sym) or d["price"] or 0
-            fl_long=sum((pr-t["price"])/t["price"]*t["amount"] for t in d["longs"]) if pr else 0
-            fl_short=sum((t["price"]-pr)/t["price"]*t["amount"] for t in d["shorts"]) if pr else 0
-            fl=fl_long+fl_short
+            fl=0; details=""
+            for i,t in enumerate(d["longs"]+d["shorts"],1):
+                is_long=t in d["longs"]
+                pnl=(pr-t["price"])/t["price"]*t["amount"] if is_long else (t["price"]-pr)/t["price"]*t["amount"]
+                fl+=pnl
+                details+=f"{'🟢 شراء' if is_long else '🔴 بيع'} {i}: دخول {t['price']:.2f} | حالي {pr:.2f} | ربح {pnl:+.2f}$\n"
             total+=d["pnl"]+fl
-            count = len(d["longs"])+len(d["shorts"])
-            avg = f" متوسط {(sum(t['price'] for t in d['longs']+d['shorts'])/count):.2f}" if count>0 else ""
-            embed.add_field(name=f"{sym} {count}/3 ADX {d['adx']:.0f}{avg}",value=f"محقق {d['pnl']:+.2f}$ عائم {fl:+.2f}$ ✅{d['wins']}❌{d['losses']}",inline=True)
-        embed.add_field(name="💰 صافي",value=f"{total:+.2f}$ | فريم {TF}",inline=False)
+            if not details: details="لا يوجد صفقات"
+            embed.add_field(name=f"{sym} {len(d['longs']+d['shorts'])}/3 ADX {d['adx']:.0f} | محقق {d['pnl']:+.2f}$ عائم {fl:+.2f}$",value=details,inline=False)
+        embed.add_field(name="💰 صافي",value=f"{total:+.2f}$ | اكتب `اقفل BTC` أو `اقفل الكل`",inline=False)
         await m.channel.send(embed=embed); return
+
+    if "اقفل" in m.content:
+        txt=m.content.upper()
+        to_close=COINS if "الكل" in m.content or "ALL" in txt else [c for c in COINS if c.replace("USDT","") in txt or c in txt]
+        if not to_close:
+            await m.channel.send("❌ اكتب `اقفل BTC` أو `اقفل ETH` أو `اقفل الكل`"); return
+        for sym in to_close:
+            d=data.get(sym); pr=get_price(sym) or d["price"] or 0
+            if not d or (not d["longs"] and not d["shorts"]): continue
+            fl=sum((pr-t["price"])/t["price"]*t["amount"] for t in d["longs"])+sum((t["price"]-pr)/t["price"]*t["amount"] for t in d["shorts"])
+            count=len(d["longs"]+d["shorts"])
+            avg=sum(t["price"] for t in d["longs"]+d["shorts"])/count if count else 0
+            d["pnl"]+=fl; d["wins"]+=1 if fl>=0 else 0; d["losses"]+=1 if fl<0 else 0
+            await m.channel.send(f"{'💰' if fl>0 else '🛑'} **إقفال يدوي {sym} {count} دفعات {fl:+.2f}$**\nمتوسط دخول {avg:.2f} -> حالي {pr:.2f}")
+            d["longs"]=[]; d["shorts"]=[]
+        return
+
     if "تصفير" in m.content:
         for c in data: data[c]={"ema50":0,"ema200":0,"macd":0,"adx":0,"longs":[],"shorts":[],"pnl":0,"wins":0,"losses":0,"price":0}
-        await m.channel.send("✅ تصفير V5 DCA"); return
+        await m.channel.send("✅ تصفير V5.1"); return
+
     await bot.process_commands(m)
 
 bot.run(os.getenv("DISCORD_TOKEN"))
