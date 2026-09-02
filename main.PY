@@ -17,7 +17,7 @@ def run(): app.run(host='0.0.0.0',port=10000)
 Thread(target=run,daemon=True).start()
 
 COINS=["BTCUSDT","ETHUSDT","SOLUSDT","BNBUSDT","XRPUSDT","DOGEUSDT","AVAXUSDT","LINKUSDT","ADAUSDT","DOTUSDT"]
-TF="15m"
+TF="60m"
 data={}
 for c in COINS: data[c]={"middle":0,"ema200":0,"price":0,"longs":[],"shorts":[],"pnl":0,"last_pnl":0,"floating":0,"status":"لا يوجد","trend":""}
 
