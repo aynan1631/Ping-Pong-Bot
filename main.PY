@@ -1,153 +1,143 @@
-import discord, os, requests
+import discord, os, requests, math
 from discord.ext import commands, tasks
 from flask import Flask
 from threading import Thread
-from datetime import datetime
 
 app = Flask('')
+
+# الصفحة المطلوبة: حقلين على خط واحد ملونين مقاس 18
 @app.route('/')
-def home(): return "V5.1 DCA Manual Close"
+def home():
+    html = """
+    <html><head><meta charset='utf-8'><style>
+    body{font-family:Arial;background:#0f0f0f;color:#fff;padding:20px}
+   .row{border:1px solid #333;padding:12px;margin:10px 0;border-radius:10px;background:#1a1a1a}
+   .trade{font-size:18px;padding:8px 16px;border-radius:8px;font-weight:bold;display:inline-block;margin-left:10px}
+   .total{font-size:18px;padding:8px 16px;border-radius:8px;font-weight:bold;display:inline-block;margin-left:10px}
+   .win{background:#006400;color:#E0FFE0;border:1px solid #00AA00}
+   .loss{background:#8B0000;color:#FFCCCC;border:1px solid #FF0000}
+    </style></head><body><h2>📊 V7 Bollinger 15m - بولنجر باند فقط</h2>
+    """
+    total_all=0
+    for sym in COINS:
+        d=data.get(sym, {})
+        total_all+=d.get("pnl",0)
+        last=d.get("last_pnl",0)
+        html+=f"""
+        <div class='row'>
+            <b style='font-size:18px'>{sym} / 15m | السعر {d.get('price',0):.4f} | وسط {d.get('middle',0):.4f}</b><br><br>
+            <span class='trade {"win" if last>=0 else "loss"}'>ربح الصفقة: {last:+.2f}$</span>
+            <span class='total {"win" if d.get("pnl",0)>=0 else "loss"}'>مجموع المحقق: {d.get("pnl",0):+.2f}$</span>
+            <span style='font-size:18px;margin-right:15px'> | العائم: {d.get("floating",0):+.2f}$ | {d.get("status","لا يوجد")}</span>
+        </div>
+        """
+    html+=f"<hr><div class='total {"win" if total_all>=0 else "loss"}' style='font-size:22px'>💰 الصافي الكلي: {total_all:+.2f}$</div></body></html>"
+    return html
+
 def run(): app.run(host='0.0.0.0', port=10000)
 Thread(target=run, daemon=True).start()
 
 COINS=["BTCUSDT","ETHUSDT","SOLUSDT","BNBUSDT","XRPUSDT","DOGEUSDT","AVAXUSDT","LINKUSDT","ADAUSDT","DOTUSDT"]
-TF="1h"
+TF="15m"
 data={}
-def init(c):
-    if c not in data: data[c]={"ema50":0,"ema200":0,"macd":0,"adx":0,"longs":[],"shorts":[],"pnl":0,"wins":0,"losses":0,"price":0}
-for c in COINS: init(c)
+for c in COINS: data[c]={"middle":0,"price":0,"longs":[],"shorts":[],"pnl":0,"last_pnl":0,"floating":0,"status":"لا يوجد"}
 
 def get_price(s):
     try: return float(requests.get(f"https://data-api.binance.vision/api/v3/ticker/price?symbol={s}",timeout=5).json()['price'])
     except: return None
 
-def calc_ema(p, per):
-    k=2/(per+1); e=sum(p[:per])/per
-    for x in p[per:]: e=x*k+e*(1-k)
-    return e
-
-def get_ind(sym):
+def get_bb(sym):
     try:
-        k=requests.get(f"https://data-api.binance.vision/api/v3/klines?symbol={sym}&interval={TF}&limit=250",timeout=10).json()
-        if not isinstance(k,list) or len(k)<210: return None
-        c=[float(x[4]) for x in k]; h=[float(x[2]) for x in k]; l=[float(x[3]) for x in k]
-        ema50=calc_ema(c,50); ema200=calc_ema(c,200)
-        macd=calc_ema(c,12)-calc_ema(c,26)
-        trs=[]; pdm=[]; mdm=[]
-        for i in range(1,len(c)):
-            tr=max(h[i]-l[i],abs(h[i]-c[i-1]),abs(l[i]-c[i-1])); trs.append(tr)
-            up=h[i]-h[i-1]; down=l[i-1]-l[i]
-            pdm.append(up if up>down and up>0 else 0); mdm.append(down if down>up and down>0 else 0)
-        atr=sum(trs[-14:])/14 if trs else 1
-        pdi=sum(pdm[-14:])/14/atr*100; mdi=sum(mdm[-14:])/14/atr*100
-        adx=abs(pdi-mdi)/(pdi+mdi)*100 if (pdi+mdi) else 0
-        return {"ema50":ema50,"ema200":ema200,"macd":macd,"adx":adx,"pdi":pdi,"mdi":mdi,"price":c[-1]}
+        k=requests.get(f"https://data-api.binance.vision/api/v3/klines?symbol={sym}&interval={TF}&limit=100",timeout=10).json()
+        if not isinstance(k,list) or len(k)<25: return None
+        closes=[float(x[4]) for x in k]
+        sma=sum(closes[-20:])/20
+        std=math.sqrt(sum((x-sma)**2 for x in closes[-20:])/20)
+        return {"middle":sma,"upper":sma+2*std,"lower":sma-2*std,"last":closes[-1],"prev":closes[-2]}
     except: return None
 
 intents=discord.Intents.default(); intents.message_content=True
 bot=commands.Bot(command_prefix="!",intents=intents)
 
-@tasks.loop(minutes=5)
+@tasks.loop(minutes=2)
 async def loop():
     ch=discord.utils.get(bot.get_all_channels(),name="العام") or next((c for c in bot.get_all_channels() if isinstance(c,discord.TextChannel)),None)
     if not ch: return
     for sym in COINS:
-        ind=get_ind(sym)
-        price=get_price(sym) or (ind["price"] if ind else None)
-        if not ind or not price: continue
-        d=data[sym]; d.update({"ema50":ind["ema50"],"ema200":ind["ema200"],"macd":ind["macd"],"adx":ind["adx"],"price":price})
+        bb=get_bb(sym)
+        if not bb: continue
+        d=data[sym]
+        d["middle"]=bb["middle"]; d["price"]=bb["last"]
+        price=bb["last"]
 
-        total_long = sum((price-t["price"])/t["price"]*t["amount"] for t in d["longs"]) if d["longs"] else 0
-        total_short = sum((t["price"]-price)/t["price"]*t["amount"] for t in d["shorts"]) if d["shorts"] else 0
+        # حساب العائم الحالي
+        fl=0
+        if d["longs"]: fl+=sum((price-t["price"])/t["price"]*t["amount"] for t in d["longs"])
+        if d["shorts"]: fl+=sum((t["price"]-price)/t["price"]*t["amount"] for t in d["shorts"])
+        d["floating"]=fl
+        d["status"]=f"LONG {len(d['longs'])} عائم {fl:+.2f}$" if d["longs"] else f"SHORT {len(d['shorts'])} عائم {fl:+.2f}$" if d["shorts"] else "لا يوجد"
 
-        if d["longs"] and (total_long>=24 or total_long<=-9 or ind["ema50"]<ind["ema200"] or ind["macd"]<0):
-            d["pnl"]+=total_long; d["wins"]+=1 if total_long>=0 else 0; d["losses"]+=1 if total_long<0 else 0
-            await ch.send(f"{'💰' if total_long>0 else '🛑'} **قفل AUTO LONG {sym} {len(d['longs'])} دفعات {total_long:+.2f}$ ADX {ind['adx']:.0f}**")
-            d["longs"]=[]
-        if d["shorts"] and (total_short>=24 or total_short<=-9 or ind["ema50"]>ind["ema200"] or ind["macd"]>0):
-            d["pnl"]+=total_short; d["wins"]+=1 if total_short>=0 else 0; d["losses"]+=1 if total_short<0 else 0
-            await ch.send(f"{'💰' if total_short>0 else '🛑'} **قفل AUTO SHORT {sym} {len(d['shorts'])} دفعات {total_short:+.2f}$ ADX {ind['adx']:.0f}**")
-            d["shorts"]=[]
+        close_above = bb["prev"] <= bb["middle"] and bb["last"] > bb["middle"]
+        close_below = bb["prev"] >= bb["middle"] and bb["last"] < bb["middle"]
 
-        if d["longs"] or d["shorts"] or ind["adx"]<12:
-            if d["longs"] or d["shorts"]:
-                pass
-            else:
-                continue
+        if close_above:
+            if d["shorts"]:
+                pr=get_price(sym) or price
+                pnl=sum((t["price"]-pr)/t["price"]*t["amount"] for t in d["shorts"])
+                d["pnl"]+=pnl; d["last_pnl"]=pnl
+                await ch.send(f"📤 **قفل SHORT {sym} 15m {pnl:+.2f}$**\n`ربح الصفقة: {pnl:+.2f}$` | `مجموع المحقق: {d['pnl']:+.2f}$`")
+                d["shorts"]=[]
 
-        long_trend = ind["ema50"]>ind["ema200"] and price>ind["ema50"] and ind["macd"]>0 and ind["pdi"]>ind["mdi"]
-        short_trend = ind["ema50"]<ind["ema200"] and price<ind["ema50"] and ind["macd"]<0 and ind["mdi"]>ind["pdi"]
-
-        if long_trend:
-            if len(d["longs"])==0:
+            if not d["longs"]:
                 d["longs"].append({"price":price,"amount":50})
-                await ch.send(f"📥 **شراء 1/3 {sym} 50$** دخول {price:.2f} EMA50 {ind['ema50']:.2f}>200 {ind['ema200']:.2f} MACD {ind['macd']:.4f}>0 ADX {ind['adx']:.0f}")
-            elif len(d["longs"])==1 and price >= d["longs"][-1]["price"]*1.01:
-                d["longs"].append({"price":price,"amount":50})
-                await ch.send(f"📥 **شراء 2/3 {sym} 50$** دخول {price:.2f} متوسط {(d['longs'][0]['price']+d['longs'][1]['price'])/2:.2f}")
-            elif len(d["longs"])==2 and price >= d["longs"][-1]["price"]*1.01 and ind["adx"]>25:
-                d["longs"].append({"price":price,"amount":50})
-                await ch.send(f"📥 **شراء 3/3 {sym} 50$** إجمالي 150$ دخول {price:.2f} ADX قوي {ind['adx']:.0f}")
+                await ch.send(f"📥 **شراء بولنجر {sym} 15m**\nفوق الوسط {bb['middle']:.4f} سعر {price:.4f}")
 
-        if short_trend:
-            if len(d["shorts"])==0:
+        if close_below:
+            if d["longs"]:
+                pr=get_price(sym) or price
+                pnl=sum((pr-t["price"])/t["price"]*t["amount"] for t in d["longs"])
+                d["pnl"]+=pnl; d["last_pnl"]=pnl
+                await ch.send(f"💰 **قفل LONG {sym} 15m {pnl:+.2f}$**\n`ربح الصفقة: {pnl:+.2f}$` | `مجموع المحقق: {d['pnl']:+.2f}$`")
+                d["longs"]=[]
+
+            if not d["shorts"]:
                 d["shorts"].append({"price":price,"amount":50})
-                await ch.send(f"📤 **بيع 1/3 {sym} 50$** دخول {price:.2f} EMA50 {ind['ema50']:.2f}<200 {ind['ema200']:.2f} MACD {ind['macd']:.4f}<0 ADX {ind['adx']:.0f}")
-            elif len(d["shorts"])==1 and price <= d["shorts"][-1]["price"]*0.99:
-                d["shorts"].append({"price":price,"amount":50})
-                await ch.send(f"📤 **بيع 2/3 {sym} 50$** دخول {price:.2f} متوسط {(d['shorts'][0]['price']+d['shorts'][1]['price'])/2:.2f}")
-            elif len(d["shorts"])==2 and price <= d["shorts"][-1]["price"]*0.99 and ind["adx"]>25:
-                d["shorts"].append({"price":price,"amount":50})
-                await ch.send(f"📤 **بيع 3/3 {sym} 50$** إجمالي 150$ دخول {price:.2f} ADX قوي {ind['adx']:.0f}")
+                await ch.send(f"📤 **بيع بولنجر {sym} 15m**\nتحت الوسط {bb['middle']:.4f} سعر {price:.4f}")
 
 @bot.event
 async def on_ready():
-    print(f"Ready {bot.user}")
+    print(f"Ready V7 Bollinger 15m {bot.user}")
     if not loop.is_running(): loop.start()
 
 @bot.event
 async def on_message(m):
     if m.author==bot.user: return
-
     if "الرصيد" in m.content:
-        embed=discord.Embed(title=f"📊 V5.1 DCA 3x50$ | 1h | هدف 24$ وقف 9$ | اقفل يدوي متاح",color=0x00ff00)
+        embed=discord.Embed(title="📊 V7 بولنجر 15m - وسط الباند فقط",color=0x00FF00)
         total=0
         for sym in COINS:
-            d=data.get(sym)
-            if not d: continue
-            pr=get_price(sym) or d["price"] or 0
-            fl=0; details=""
-            for i,t in enumerate(d["longs"]+d["shorts"],1):
-                is_long=t in d["longs"]
-                pnl=(pr-t["price"])/t["price"]*t["amount"] if is_long else (t["price"]-pr)/t["price"]*t["amount"]
-                fl+=pnl
-                details+=f"{'🟢 شراء' if is_long else '🔴 بيع'} {i}: دخول {t['price']:.2f} | حالي {pr:.2f} | ربح {pnl:+.2f}$\n"
-            total+=d["pnl"]+fl
-            if not details: details="لا يوجد صفقات"
-            embed.add_field(name=f"{sym} {len(d['longs']+d['shorts'])}/3 ADX {d['adx']:.0f} | محقق {d['pnl']:+.2f}$ عائم {fl:+.2f}$",value=details,inline=False)
-        embed.add_field(name="💰 صافي",value=f"{total:+.2f}$ | اكتب `اقفل BTC` أو `اقفل الكل`",inline=False)
+            d=data[sym]
+            total+=d["pnl"]+d["floating"]
+            embed.add_field(name=f"{sym} | {d['status']} | محقق {d['pnl']:+.2f}$ آخر صفقة {d['last_pnl']:+.2f}$",
+                            value=f"سعر {d['price']:.4f} وسط {d['middle']:.4f} عائم {d['floating']:+.2f}$",inline=False)
+        embed.add_field(name="💰 الصافي",value=f"{total:+.2f}$ | افتح رابط البوت للالوان مقاس 18",inline=False)
         await m.channel.send(embed=embed); return
 
     if "اقفل" in m.content:
         txt=m.content.upper()
-        to_close=COINS if "الكل" in m.content or "ALL" in txt else [c for c in COINS if c.replace("USDT","") in txt or c in txt]
-        if not to_close:
-            await m.channel.send("❌ اكتب `اقفل BTC` أو `اقفل ETH` أو `اقفل الكل`"); return
+        to_close=COINS if "الكل" in m.content else [c for c in COINS if c.replace("USDT","") in txt]
         for sym in to_close:
-            d=data.get(sym); pr=get_price(sym) or d["price"] or 0
-            if not d or (not d["longs"] and not d["shorts"]): continue
+            d=data[sym]; pr=get_price(sym) or d["price"]
+            if not pr or (not d["longs"] and not d["shorts"]): continue
             fl=sum((pr-t["price"])/t["price"]*t["amount"] for t in d["longs"])+sum((t["price"]-pr)/t["price"]*t["amount"] for t in d["shorts"])
-            count=len(d["longs"]+d["shorts"])
-            avg=sum(t["price"] for t in d["longs"]+d["shorts"])/count if count else 0
-            d["pnl"]+=fl; d["wins"]+=1 if fl>=0 else 0; d["losses"]+=1 if fl<0 else 0
-            await m.channel.send(f"{'💰' if fl>0 else '🛑'} **إقفال يدوي {sym} {count} دفعات {fl:+.2f}$**\nمتوسط دخول {avg:.2f} -> حالي {pr:.2f}")
-            d["longs"]=[]; d["shorts"]=[]
+            d["pnl"]+=fl; d["last_pnl"]=fl
+            await m.channel.send(f"🛑 **إقفال يدوي {sym} {fl:+.2f}$**")
+            d["longs"]=[]; d["shorts"]=[]; d["floating"]=0; d["status"]="لا يوجد"
         return
 
     if "تصفير" in m.content:
-        for c in data: data[c]={"ema50":0,"ema200":0,"macd":0,"adx":0,"longs":[],"shorts":[],"pnl":0,"wins":0,"losses":0,"price":0}
-        await m.channel.send("✅ تصفير V5.1"); return
-
+        for c in COINS: data[c]={"middle":0,"price":0,"longs":[],"shorts":[],"pnl":0,"last_pnl":0,"floating":0,"status":"لا يوجد"}
+        await m.channel.send("✅ تصفير V7 بولنجر 15m"); return
     await bot.process_commands(m)
 
 bot.run(os.getenv("DISCORD_TOKEN"))
