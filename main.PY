@@ -82,7 +82,7 @@ async def on_ready():
 async def on_message(m):
     if m.author==bot.user: return
     if "الرصيد" in m.content:
-        embed=discord.Embed(title="V8.2 بولنجر + EMA200 15m - صعود شراء فقط هبوط بيع فقط",color=0x00FF00)
+        embed=discord.Embed(title="V8.2 بولنجر + EMA200 60m - صعود شراء فقط هبوط بيع فقط",color=0x00FF00)
         total=0
         for sym in COINS:
             d=data[sym]; total+=d["pnl"]+d["floating"]
