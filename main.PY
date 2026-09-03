@@ -17,7 +17,7 @@ def run(): app.run(host='0.0.0.0',port=10000)
 Thread(target=run,daemon=True).start()
 
 COINS=["BTCUSDT","ETHUSDT","SOLUSDT","BNBUSDT","XRPUSDT","DOGEUSDT","AVAXUSDT","LINKUSDT","ADAUSDT","DOTUSDT"]
-TF="60m"
+TF="15m"
 data={}
 for c in COINS: data[c]={"middle":0,"ema200":0,"price":0,"longs":[],"shorts":[],"pnl":0,"last_pnl":0,"floating":0,"status":"لا يوجد","trend":""}
 
@@ -82,7 +82,7 @@ async def on_ready():
 async def on_message(m):
     if m.author==bot.user: return
     if "الرصيد" in m.content:
-        embed=discord.Embed(title="V8.2 بولنجر + EMA200 60m - صعود شراء فقط هبوط بيع فقط",color=0x00FF00)
+        embed=discord.Embed(title="V8.2 بولنجر + EMA200 15m - صعود شراء فقط هبوط بيع فقط",color=0x00FF00)
         total=0
         for sym in COINS:
             d=data[sym]; total+=d["pnl"]+d["floating"]
