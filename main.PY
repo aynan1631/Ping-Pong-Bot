@@ -1,89 +1,123 @@
+import discord
 import random
-import time
+import asyncio
 import requests
 from datetime import datetime
+import threading
 
-# ========== إعداداتك القديمة ==========
+# ========= إعداداتك =========
+TOKEN = "حط توكن بوت الديسكورد هنا"
+CHANNEL_ID = 0 # حط ايدي القناة هنا
 TRADE_SIZE = 500
-TP_DOLLAR = 5.0
-SL_DOLLAR = -5.0
-DISCORD_WEBHOOK = "" # حط رابط الديسكورد هنا لو عندك
-COINS_LIST = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "DOGEUSDT", "AVAXUSDT", "ADAUSDT", "SHIBUSDT"]
+TP = 5.0
+SL = -5.0
+COINS = ["BTCUSDT","ETHUSDT","SOLUSDT","BNBUSDT","XRPUSDT","DOGEUSDT","AVAXUSDT","ADAUSDT"]
 
 positions = []
-total_pnl = 0
-trade_count = 0
+total_profit = 0
+total_loss = 0
+closed_count = 0
 
-# ========== دالة جديدة 1: فلتر الحماية من الانعكاس ==========
+# ========= فلتر الحماية رقم 1 =========
 def is_bull_market():
     try:
-        url = "https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1h&limit=200"
-        data = requests.get(url, timeout=10).json()
-        closes = [float(k[4]) for k in data]
-        ema200 = sum(closes) / len(closes)
-        current = closes[-1]
-        is_bull = current > ema200
-        print(f"[{datetime.now().strftime('%H:%M:%S')}] فحص اتجاه BTC: {current:.2f} vs EMA200 {ema200:.2f} -> {'صاعد ✅' if is_bull else 'هابط ⛔'}")
-        return is_bull
+        r = requests.get("https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1h&limit=200", timeout=10).json()
+        closes = [float(k[4]) for k in r]
+        ema200 = sum(closes)/200
+        price = closes[-1]
+        return price > ema200
     except:
         return True
 
-def send_discord(msg):
-    if DISCORD_WEBHOOK:
-        try:
-            requests.post(DISCORD_WEBHOOK, json={"content": msg})
-        except:
-            pass
+# ========= إعداد الديسكورد =========
+intents = discord.Intents.default()
+intents.message_content = True
+client = discord.Client(intents=intents)
 
-# ========== دوالك القديمة نفسها ==========
-def get_movers():
-    # هنا الفلتر الجديد
-    if not is_bull_market():
-        print("السوق هابط حاليا، البوت متوقف مؤقتا لحماية رأس المال")
-        send_discord("⛔ السوق هابط (BTC تحت EMA200) - البوت متوقف للحماية")
-        return []
+async def trading_loop():
+    global total_profit, total_loss, closed_count
+    await client.wait_until_ready()
+    channel = client.get_channel(CHANNEL_ID)
 
-    movers = random.sample(COINS_LIST, 2)
-    result = []
-    for coin in movers:
-        result.append({
-            "symbol": coin,
-            "pnl": 0.0,
-            "entry": datetime.now()
-        })
-        print(f"فتح صفقة: {coin}")
-    return result
+    while True:
+        # فتح صفقات - مع الفلتر
+        if len(positions) < 2:
+            if not is_bull_market():
+                if channel:
+                    await channel.send("⛔ **السوق هابط (BTC تحت EMA200) - البوت متوقف للحماية**")
+                await asyncio.sleep(300) # ينتظر 5 دقايق
+                continue
 
-def update_pnl(pos):
-    # محاكاة PnL تجريبي مثل كودك
-    pos["pnl"] += random.uniform(-0.8, 1.2)
-    return pos["pnl"]
+            for _ in range(2 - len(positions)):
+                coin = random.choice(COINS)
+                positions.append({"symbol": coin, "pnl": 0, "entry": datetime.now()})
+                if channel:
+                    await channel.send(f"✅ فتح صفقة شراء: **{coin}** بـ {TRADE_SIZE}$")
 
-# ========== اللوب الرئيسي نفسه ==========
-print("=== البوت بدأ - عشوائي + حماية من الانعكاس ===")
-send_discord("🚀 البوت بدأ - عشوائي + فلتر حماية من الهبوط")
+        # تحديث الربح
+        for pos in positions[:]:
+            pos["pnl"] += random.uniform(-0.8, 1.2)
 
-while True:
-    if len(positions) < 2:
-        positions.extend(get_movers())
+            if pos["pnl"] >= TP:
+                total_profit += pos["pnl"]
+                closed_count += 1
+                if channel:
+                    await channel.send(f"🟢 **ربح** | {pos['symbol']} | {pos['pnl']:.2f}$")
+                positions.remove(pos)
 
-    for pos in positions[:]:
-        pnl = update_pnl(pos)
+            elif pos["pnl"] <= SL:
+                total_loss += pos["pnl"]
+                closed_count += 1
+                if channel:
+                    await channel.send(f"🔴 **خسارة** | {pos['symbol']} | {pos['pnl']:.2f}$")
+                positions.remove(pos)
 
-        if pnl >= TP_DOLLAR:
-            total_pnl += pnl
-            trade_count += 1
-            msg = f"🟢 ربح | {pos['symbol']} | {pnl:.2f}$ | الصافي {total_pnl:.2f}$ | العدد {trade_count}"
-            print(msg)
-            send_discord(msg)
-            positions.remove(pos)
+        await asyncio.sleep(10)
 
-        elif pnl <= SL_DOLLAR:
-            total_pnl += pnl
-            trade_count += 1
-            msg = f"🔴 خسارة | {pos['symbol']} | {pnl:.2f}$ | الصافي {total_pnl:.2f}$ | العدد {trade_count}"
-            print(msg)
-            send_discord(msg)
-            positions.remove(pos)
+@client.event
+async def on_ready():
+    print(f"البوت شغال: {client.user}")
 
-    time.sleep(5)
+@client.event
+async def on_message(message):
+    if message.author == client.user:
+        return
+
+    content = message.content.strip()
+
+    # أمر 1: الحالة
+    if content == "الحالة":
+        if not positions:
+            if is_bull_market():
+                await message.channel.send("📭 **لا يوجد صفقات مفتوحة حاليا - السوق صاعد وينتظر دخول**")
+            else:
+                await message.channel.send("⛔ **لا يوجد صفقات - السوق هابط والبوت متوقف للحماية**")
+        else:
+            txt = "📊 **الصفقات المفتوحة:**\n"
+            for p in positions:
+                txt += f"- {p['symbol']}: {p['pnl']:.2f}$\n"
+            await message.channel.send(txt)
+
+    # أمر 2: الارباح
+    elif content == "الارباح":
+        net = total_profit + total_loss
+        await message.channel.send(f"💰 **الإحصائيات:**\n🟢 مجموع الأرباح: {total_profit:.2f}$\n🔴 مجموع الخسائر: {total_loss:.2f}$\n💵 **الصافي: {net:.2f}$**\n📦 عدد الصفقات المقفلة: {closed_count}")
+
+    # أمر 3: اقفال الكل
+    elif content == "اقفال الكل":
+        if not positions:
+            await message.channel.send("لا يوجد شي لتقفله")
+        else:
+            for p in positions[:]:
+                if p['pnl'] >= 0:
+                    total_profit += p['pnl']
+                else:
+                    total_loss += p['pnl']
+                closed_count += 1
+            positions.clear()
+            net = total_profit + total_loss
+            await message.channel.send(f"✅ **تم إقفال الكل**\nالصافي الآن: {net:.2f}$")
+
+# ========= تشغيل =========
+client.loop.create_task(trading_loop())
+client.run(TOKEN)
