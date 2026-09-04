@@ -6,8 +6,7 @@ app = Flask('')
 @app.route('/')
 def home(): return "البوت شغال ✅"
 def run(): app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)))
-def keep_alive():
-    Thread(target=run).start()
+def keep_alive(): Thread(target=run).start()
 
 TOKEN = os.getenv("DISCORD_TOKEN") or os.getenv("TOKEN") or ""
 CHANNEL_ID = int(os.getenv("CHANNEL_ID") or os.getenv("CHANNEL") or 0)
@@ -23,8 +22,7 @@ def is_bull_market():
         r = requests.get("https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1h&limit=200", timeout=10).json()
         closes = [float(k[4]) for k in r]
         return closes[-1] > sum(closes)/200
-    except:
-        return True
+    except: return True
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -32,7 +30,6 @@ intents.message_content = True
 class MyClient(discord.Client):
     async def setup_hook(self):
         self.loop.create_task(trading_loop())
-
 client = MyClient(intents=intents)
 
 async def trading_loop():
@@ -45,7 +42,7 @@ async def trading_loop():
                 coin = random.choice(COINS)
                 positions.append({"symbol": coin, "pnl": 0})
                 if channel:
-                    try: await channel.send(f"📈 تم فتح صفقة جديدتين\n• {coin}")
+                    try: await channel.send(f"📈 تم فتح صفقة: {coin}")
                     except: pass
         for pos in positions[:]:
             pos["pnl"] += random.uniform(-0.8, 1.2)
@@ -65,16 +62,14 @@ async def on_ready():
 
 @client.event
 async def on_message(message):
+    global total_profit, total_loss, closed_count, positions
     if message.author == client.user: return
     txt = message.content.strip()
-    print(f"رسالة وصلت: {txt}") # عشان نشوفها في Logs
-
-    if txt in ["الحالة", "الحاله", "حاله", "تصفير", "الارباح", "الارباح", "اقفال الكل"]:
-        pass
+    print(f"رسالة: {txt}")
 
     if txt == "الحالة" or txt == "الحاله":
         if not positions:
-            await message.channel.send("📭 لا يوجد صفقات مفتوحة" if is_bull_market() else "⛔ السوق هابط والبوت متوقف للحماية")
+            await message.channel.send("📭 لا يوجد صفقات مفتوحة" if is_bull_market() else "⛔ السوق هابط والبوت متوقف")
         else:
             msg = "📊 **الصفقات المفتوحة:**\n"
             for p in positions: msg += f"- {p['symbol']}: {p['pnl']:.2f}$\n"
@@ -83,14 +78,11 @@ async def on_message(message):
         net = total_profit + total_loss
         await message.channel.send(f"💰 الأرباح: {total_profit:.2f}$\n🔴 الخسائر: {total_loss:.2f}$\n💵 الصافي: {net:.2f}$\n📦 العدد: {closed_count}")
     elif txt == "تصفير":
-        global total_profit, total_loss, closed_count
         total_profit = 0; total_loss = 0; closed_count = 0
         await message.channel.send("✅ تم تصفير الأرباح")
     elif txt == "اقفال الكل":
         if not positions: await message.channel.send("لا يوجد شي لتقفله")
         else:
-            for p in positions[:]:
-                if p['pnl'] >= 0: total_profit.__add__(p['pnl'])
             positions.clear()
             await message.channel.send("✅ تم إقفال الكل")
 
