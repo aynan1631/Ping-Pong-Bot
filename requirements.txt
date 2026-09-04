@@ -1,4 +1,3 @@
-Flask
+flask
 discord.py
-python-binance
 requests
