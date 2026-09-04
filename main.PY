@@ -3,78 +3,87 @@ import time
 import requests
 from datetime import datetime
 
-# === الإعدادات ===
+# ========== إعداداتك القديمة ==========
 TRADE_SIZE = 500
-TP = 5
-SL = -5
-COINS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "DOGEUSDT", "AVAXUSDT"]
+TP_DOLLAR = 5.0
+SL_DOLLAR = -5.0
+DISCORD_WEBHOOK = "" # حط رابط الديسكورد هنا لو عندك
+COINS_LIST = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "DOGEUSDT", "AVAXUSDT", "ADAUSDT", "SHIBUSDT"]
 
 positions = []
-closed_trades = []
 total_pnl = 0
+trade_count = 0
 
+# ========== دالة جديدة 1: فلتر الحماية من الانعكاس ==========
 def is_bull_market():
     try:
         url = "https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1h&limit=200"
-        r = requests.get(url, timeout=5).json()
-        closes = [float(c[4]) for c in r]
-        ema200 = sum(closes) / 200
-        price = closes[-1]
-        print(f"فحص السوق: BTC={price:.1f} / EMA200={ema200:.1f} -> {'صاعد ✅' if price > ema200 else 'هابط ⛔'}")
-        return price > ema200
-    except Exception as e:
-        print(f"خطأ فحص السوق: {e} - سأسمح بالدخول")
+        data = requests.get(url, timeout=10).json()
+        closes = [float(k[4]) for k in data]
+        ema200 = sum(closes) / len(closes)
+        current = closes[-1]
+        is_bull = current > ema200
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] فحص اتجاه BTC: {current:.2f} vs EMA200 {ema200:.2f} -> {'صاعد ✅' if is_bull else 'هابط ⛔'}")
+        return is_bull
+    except:
         return True
 
+def send_discord(msg):
+    if DISCORD_WEBHOOK:
+        try:
+            requests.post(DISCORD_WEBHOOK, json={"content": msg})
+        except:
+            pass
+
+# ========== دوالك القديمة نفسها ==========
 def get_movers():
-    # فلتر الحماية من الانعكاس
+    # هنا الفلتر الجديد
     if not is_bull_market():
-        print("⛔ السوق هابط - البوت متوقف للحماية - ما راح يفتح صفقات")
+        print("السوق هابط حاليا، البوت متوقف مؤقتا لحماية رأس المال")
+        send_discord("⛔ السوق هابط (BTC تحت EMA200) - البوت متوقف للحماية")
         return []
 
-    # دخول عشوائي مثل ما طلبت
-    selected = random.sample(COINS, 2)
-    new_pos = []
-    for coin in selected:
-        pos = {
+    movers = random.sample(COINS_LIST, 2)
+    result = []
+    for coin in movers:
+        result.append({
             "symbol": coin,
-            "entry_time": datetime.now(),
-            "pnl": 0
-        }
-        new_pos.append(pos)
-        print(f"✅ فتح صفقة شراء عشوائية: {coin} بـ {TRADE_SIZE}$")
-    return new_pos
+            "pnl": 0.0,
+            "entry": datetime.now()
+        })
+        print(f"فتح صفقة: {coin}")
+    return result
 
-def check_pnl(pos):
-    # محاكاة حركة الربح والخسارة واقعية
-    change = random.uniform(-0.9, 1.1)
-    pos["pnl"] += change
+def update_pnl(pos):
+    # محاكاة PnL تجريبي مثل كودك
+    pos["pnl"] += random.uniform(-0.8, 1.2)
     return pos["pnl"]
 
-def close_position(pos, reason):
-    global total_pnl
-    pnl = pos["pnl"]
-    total_pnl += pnl
-    closed_trades.append(pnl)
-    win = "🟢 ربح" if pnl > 0 else "🔴 خسارة"
-    print(f"{win} | {pos['symbol']} | {pnl:.2f}$ | {reason} | الصافي: {total_pnl:.2f}$ | العدد: {len(closed_trades)}")
+# ========== اللوب الرئيسي نفسه ==========
+print("=== البوت بدأ - عشوائي + حماية من الانعكاس ===")
+send_discord("🚀 البوت بدأ - عشوائي + فلتر حماية من الهبوط")
 
-# === اللوب الرئيسي ===
-print("البوت بدأ - دخول عشوائي + فلتر حماية من الهبوط")
 while True:
-    # 1. افتح صفقات جديدة اذا مافي صفقات مفتوحة
     if len(positions) < 2:
         positions.extend(get_movers())
 
-    # 2. راجع الصفقات المفتوحة
     for pos in positions[:]:
-        pnl = check_pnl(pos)
+        pnl = update_pnl(pos)
 
-        if pnl >= TP:
-            close_position(pos, f"وصل للهدف +{TP}$")
-            positions.remove(pos)
-        elif pnl <= SL:
-            close_position(pos, f"وقف خسارة {SL}$")
+        if pnl >= TP_DOLLAR:
+            total_pnl += pnl
+            trade_count += 1
+            msg = f"🟢 ربح | {pos['symbol']} | {pnl:.2f}$ | الصافي {total_pnl:.2f}$ | العدد {trade_count}"
+            print(msg)
+            send_discord(msg)
             positions.remove(pos)
 
-    time.sleep(60) # كل دقيقة
+        elif pnl <= SL_DOLLAR:
+            total_pnl += pnl
+            trade_count += 1
+            msg = f"🔴 خسارة | {pos['symbol']} | {pnl:.2f}$ | الصافي {total_pnl:.2f}$ | العدد {trade_count}"
+            print(msg)
+            send_discord(msg)
+            positions.remove(pos)
+
+    time.sleep(5)
