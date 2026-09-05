@@ -1,4 +1,4 @@
-import os, discord, threading, random, asyncio, aiohttp
+import os, discord, threading, random, asyncio, aiohttp, requests
 from discord.ext import tasks
 from datetime import datetime
 from flask import Flask
@@ -6,12 +6,11 @@ from flask import Flask
 app = Flask(__name__)
 @app.route('/')
 def home(): return "CRAZY HIT & RUN - صاحي 24/7 ✅"
-def run_web(): 
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+def run_web(): app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
 threading.Thread(target=run_web, daemon=True).start()
 
 TOKEN = os.getenv("DISCORD_TOKEN")
-CHANNEL_ID = 141234567890123456  # تأكد هذا نفس الآيدي حقك 1538955402513747981
+CHANNEL_ID = 1538955402513747981
 CAPITAL = 250.0
 MAX = 5
 dashboard_msg, trades = None, {}
@@ -23,7 +22,6 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = discord.Client(intents=intents)
 
-# سحب الأسعار بدون ما يعلق البوت
 async def price_loop():
     global price_cache
     while True:
@@ -37,7 +35,7 @@ async def price_loop():
                             price_cache[sym] = float(x['last'])
         except Exception as e:
             print(f"price error: {e}")
-        await asyncio.sleep(2)  # كل ثانيتين يكفي، 0.4 كان يقتله
+        await asyncio.sleep(2)
 
 @bot.event
 async def on_ready():
@@ -46,7 +44,6 @@ async def on_ready():
     if not crazy_close.is_running(): crazy_close.start()
     if not live_board.is_running(): live_board.start()
     if not crazy_entry.is_running(): crazy_entry.start()
-    # عشان Render ما ينام
     if not keep_alive.is_running(): keep_alive.start()
 
 @bot.event
@@ -125,12 +122,9 @@ async def live_board():
             dashboard_msg=await ch.send(embed=embed)
     except: pass
 
-# هذا اللي يخليه ما ينام في Render
 @tasks.loop(minutes=10)
 async def keep_alive():
     try:
-        # يصحي نفسه كل 10 دقايق
-        import requests
         url = os.getenv("RENDER_EXTERNAL_URL")
         if url:
             requests.get(url, timeout=5)
