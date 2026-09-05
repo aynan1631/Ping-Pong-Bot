@@ -5,81 +5,55 @@ from flask import Flask
 
 app = Flask(__name__)
 @app.route('/')
-def home(): return "FAST FIX ✅"
+def home(): return "SAME BOARD FAST ✅"
 def run_web(): app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
 threading.Thread(target=run_web, daemon=True).start()
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 CHANNEL_ID = 1538955402513747981
-CAPITAL_PER_TRADE = 250.0
-MAX_TRADES = 5
-TP, SL = 5.0, -5.0
+CAPITAL = 250.0
+MAX = 5
 dashboard_msg, trades = None, {}
 total_realized = 0.0
 COINS = ["DOGEUSDT","SOLUSDT","AVAXUSDT","XRPUSDT","BNBUSDT","ADAUSDT","TRXUSDT","LTCUSDT","SHIBUSDT","PEPEUSDT"]
 
-# كاش عشان السرعة
 price_cache = {}
-ema4h_cache = {"ema":None,"btc":0,"time":0}
+trend_cache = {}
 
 intents = discord.Intents.default()
 intents.message_content = True
 bot = discord.Client(intents=intents)
 
-def get_all_prices():
-    try:
-        # طلب واحد يجيب كل الأسعار مرة وحدة - سريع
-        r=requests.get("https://www.okx.com/api/v5/market/tickers?instType=SPOT",timeout=2).json()
-        d={x['instId'].replace('-',''): float(x['last']) for x in r['data']}
+def price_thread():
+    while True:
+        try:
+            r=requests.get("https://www.okx.com/api/v5/market/tickers?instType=SPOT",timeout=2).json()
+            for x in r['data']:
+                sym=x['instId'].replace('-','')
+                if sym in COINS:
+                    price_cache[sym]=float(x['last'])
+        except: pass
+        time.sleep(0.5)
+
+def trend_thread():
+    while True:
         for c in COINS:
-            key=c.replace('USDT','-USDT')
-            # نحاول نلقاه
-            if c in d: price_cache[c]=d[c]
-            elif key in r: pass
-        return d
-    except: return {}
-
-def price_fast(sym):
-    # يجيب من الكاش أولا
-    return price_cache.get(sym, 0)
-
-def refresh_prices():
-    try:
-        for coin in list(trades.keys()) + COINS:
-            if coin not in trades and random.random()>0.3: continue # نحدث الموجودة فقط بسرعة
             try:
-                r=requests.get(f"https://www.okx.com/api/v5/market/ticker?instId={coin.replace('USDT','-USDT')}",timeout=0.8).json()
-                price_cache[coin]=float(r['data'][0]['last'])
+                r=requests.get(f"https://www.okx.com/api/v5/market/candles?instId={c.replace('USDT','-USDT')}&bar=5m&limit=101",timeout=2).json()
+                closes=[float(v[4]) for v in r['data']][::-1]
+                ema=closes[0]
+                for p in closes[1:]: ema=p*0.0198+ema*0.9802
+                trend_cache[c]=closes[-1]-ema
             except: pass
-    except: pass
-
-def get_trend(sym):
-    try:
-        r=requests.get(f"https://www.okx.com/api/v5/market/candles?instId={sym.replace('USDT','-USDT')}&bar=5m&limit=120",timeout=2).json()
-        closes=[float(c[4]) for c in r['data']][::-1]
-        if len(closes)<10: return 0
-        ema=closes[0]
-        for p in closes[1:]: ema=p*0.0198+ema*0.9802
-        return closes[-1]-ema
-    except: return 0
-
-def get_ema100_4h_cached():
-    if time.time() - ema4h_cache["time"] < 60:
-        return ema4h_cache["ema"], ema4h_cache["btc"]
-    try:
-        d=requests.get("https://www.okx.com/api/v5/market/candles?instId=BTC-USDT&bar=4H&limit=100",timeout=2).json()['data']
-        closes=[float(c[4]) for c in d][::-1]
-        ema=closes[0]
-        for p in closes[1:]: ema=p*0.0198+ema*0.9802
-        ema4h_cache.update({"ema":ema,"btc":closes[-1],"time":time.time()})
-        return ema, closes[-1]
-    except: return ema4h_cache["ema"], ema4h_cache["btc"]
+        time.sleep(30)
 
 @bot.event
 async def on_ready():
+    threading.Thread(target=price_thread, daemon=True).start()
+    threading.Thread(target=trend_thread, daemon=True).start()
+    if not fast_close.is_running(): fast_close.start()
     if not live_board.is_running(): live_board.start()
     if not auto_entry.is_running(): auto_entry.start()
-    if not price_loop.is_running(): price_loop.start()
 
 @bot.event
 async def on_message(msg):
@@ -91,107 +65,90 @@ async def on_message(msg):
             try: await dashboard_msg.delete()
             except: pass
             dashboard_msg=None
-        await msg.channel.send("✅ تم التصفير - النسخة السريعة")
+        await msg.channel.send("✅ تم التصفير")
 
-@tasks.loop(seconds=0.7)
-async def price_loop():
-    # يحدث الأسعار بالخلفية كل 0.7 ثانية
-    threading.Thread(target=refresh_prices, daemon=True).start()
-
-@tasks.loop(seconds=3)
+@tasks.loop(seconds=2.5)
 async def auto_entry():
-    if len(trades)>=MAX_TRADES: return
-    longs = sum(1 for v in trades.values() if v['side']=='LONG')
-    shorts = sum(1 for v in trades.values() if v['side']=='SHORT')
-    up=[]; down=[]
-    for coin in COINS:
-        if coin in trades: continue
-        t=get_trend(coin)
-        if t>=0: up.append(coin)
-        else: down.append(coin)
-    sym=None; side=None
+    if len(trades)>=MAX: return
+    up=[c for c in COINS if c not in trades and trend_cache.get(c,0)>=0]
+    down=[c for c in COINS if c not in trades and trend_cache.get(c,0)<0]
+    longs=sum(1 for v in trades.values() if v['side']=='LONG')
     if up and down:
-        if longs <= shorts: sym=random.choice(up); side="LONG"
+        if longs<=1: sym=random.choice(up); side="LONG"
         else: sym=random.choice(down); side="SHORT"
     elif up: sym=random.choice(up); side="LONG"
     elif down: sym=random.choice(down); side="SHORT"
     else: return
-    cur=price_fast(sym)
+    cur=price_cache.get(sym,0)
     if cur==0: return
-    trades[sym]={"entry":cur,"side":side,"qty":CAPITAL_PER_TRADE/cur}
-    ch=bot.get_channel(CHANNEL_ID)
-    if ch: await ch.send(f"🤖 دخول {sym} {side} | {len(trades)}/{MAX_TRADES}")
+    trades[sym]={"entry":cur,"side":side,"qty":CAPITAL/cur}
 
-@tasks.loop(seconds=1)
+# هذا هو اللي يقفل بسرعة البرق - نفس لوحتك
+@tasks.loop(seconds=0.5)
+async def fast_close():
+    global trades, total_realized
+    if not trades: return
+    ch=bot.get_channel(CHANNEL_ID)
+    sp=0; sl=0; pnls=[]
+    for sym,d in list(trades.items()):
+        cur=price_cache.get(sym,0)
+        if cur==0: continue
+        pnl=(cur-d['entry'])*d['qty'] if d['side']=='LONG' else (d['entry']-cur)*d['qty']
+        pnls.append(pnl)
+        if pnl>=0: sp+=pnl
+        else: sl+=abs(pnl)
+    total_net=sp-sl
+
+    if total_net>=1.0 and pnls:
+        total_realized+=total_net
+        trades.clear()
+        if ch: await ch.send(f"💰 قفل جماعي صافي {total_net:.2f}$ | مقفلة {total_realized:.2f}$ ✅")
+        return
+
+    for sym in list(trades.keys()):
+        cur=price_cache.get(sym,0)
+        if cur==0: continue
+        d=trades[sym]
+        pnl=(cur-d['entry'])*d['qty'] if d['side']=='LONG' else (d['entry']-cur)*d['qty']
+        if pnl>=5 or pnl<=-5:
+            if pnl>0: total_realized+=pnl
+            del trades[sym]
+            if ch: await ch.send(f"🔒 قفل {sym} {pnl:.2f}$")
+
+# اللوحة نفس اللي في صورتك - بطيئة شوي عشان ما تعلق
+@tasks.loop(seconds=2)
 async def live_board():
-    global dashboard_msg, trades, total_realized
+    global dashboard_msg
     ch=bot.get_channel(CHANNEL_ID)
     if not ch: return
+    txt=""; sp=0; sl=0
+    for sym,d in list(trades.items()):
+        cur=price_cache.get(sym,0)
+        if cur==0: continue
+        pnl=(cur-d['entry'])*d['qty'] if d['side']=='LONG' else (d['entry']-cur)*d['qty']
+        if pnl>=0: sp+=pnl
+        else: sl+=abs(pnl)
+        txt+=f"{sym} {d['side']} ${CAPITAL}\nدخول {d['entry']:.6f} | حالي {cur:.6f}\nربح ${pnl:.2f}\n\n"
+
+    if not txt: txt="بانتظار فرص EMA100 5m..."
+    total_net=sp-sl
+    l=sum(1 for v in trades.values() if v['side']=='LONG')
+    s=sum(1 for v in trades.values() if v['side']=='SHORT')
+
+    # نفس تصميم صورتك
+    footer=f"مقفلة= ${total_realized:.2f}\nأرباح= ${sp:.2f} | خساير= ${sl:.2f}\nالصافي= ${total_net:.2f}- | L:{l} S:{s} 5/5\n\nكل صفقة $250 | كلي $1000 | EMA100 5m | يقفل الكل $1\nToday at {datetime.now().strftime('%I:%M %p')}"
+
+    embed=discord.Embed(title="📊 الصفقات المفتوحة", description=txt, color=0x2ecc71)
+    embed.add_field(name="\u200b", value=footer, inline=False)
+
     try:
-        ema4h, btc = get_ema100_4h_cached()
-        header=f"BTC {btc:.0f} | EMA4H {ema4h:.0f}\n" if ema4h else ""
-
-        # حساب سريع من الكاش بدون انتظار
-        all_pnls=[]
-        sum_profit=0; sum_loss=0; txt=""
-        to_close_all=False; to_close_single=[]
-
-        for sym,d in list(trades.items()):
-            cur=price_fast(sym)
-            if cur==0: continue
-            pnl=(cur-d["entry"])*d["qty"] if d["side"]=="LONG" else (d["entry"]-cur)*d["qty"]
-            all_pnls.append((sym,pnl,cur))
-            if pnl>=0: sum_profit+=pnl
-            else: sum_loss+=abs(pnl)
-
-            # فحص فوري للوقف
-            if pnl>=TP or pnl<=SL:
-                to_close_single.append((sym,pnl))
-
-        total_net=sum_profit-sum_loss
-
-        # 1- يقفل الكل اذا صافي 1$ - فوري
-        if total_net>=1.0 and len(all_pnls)>=1:
-            total_realized+=total_net
-            trades.clear()
-            await ch.send(f"💰 قفل جماعي صافي {total_net:.2f}$ | {len(all_pnls)} صفقات | مقفلة {total_realized:.2f}$")
-            to_close_single.clear()
+        if dashboard_msg: await dashboard_msg.edit(embed=embed)
         else:
-            # 2- يقفل الفردي اللي ضرب وقف
-            for sym,pnl in to_close_single:
-                if sym in trades:
-                    if pnl>0: total_realized+=pnl
-                    del trades[sym]
-                    await ch.send(f"🔒 قفل {sym} {pnl:.2f}$ | SL/TP")
-
-        # بناء النص بعد القفل
-        txt=""
-        if trades:
-            for sym,pnl,cur in all_pnls:
-                if sym not in trades: continue
-                d=trades[sym]
-                txt+=f"**{sym} {d['side']}** ${CAPITAL_PER_TRADE}\nدخول {d['entry']:.6f} | {cur:.6f}\nربح {pnl:.2f}$\n\n"
-        else:
-            txt="بانتظار فرص..."
-
-        l=sum(1 for v in trades.values() if v['side']=='LONG')
-        s=sum(1 for v in trades.values() if v['side']=='SHORT')
-        footer=f"💰 مقفلة= {total_realized:.2f}$\nأرباح= {sum_profit:.2f}$ | خساير= {sum_loss:.2f}$\nالصافي= {total_net:.2f}$ | {len(trades)}/{MAX_TRADES} L:{l} S:{s}\n\n250$ لكل صفقة | يقفل الكل 1$ | SL {SL}$\nToday at {datetime.now().strftime('%I:%M %p')}"
-
-        embed=discord.Embed(title=f"📊 {len(trades)}/{MAX_TRADES} | صافي {total_net:.2f}$", description=header+txt, color=0x2ecc71 if total_net>=0 else 0xe74c3c)
-        embed.add_field(name="\u200b", value=footer, inline=False)
-        embed.timestamp=datetime.now()
-
-        if dashboard_msg:
-            try: await dashboard_msg.edit(embed=embed)
-            except:
-                dashboard_msg=await ch.send(embed=embed)
-        else:
-            async for m in ch.history(limit=10):
+            async for m in ch.history(limit=5):
                 if m.author==bot.user and m.embeds:
                     try: await m.delete()
                     except: pass
             dashboard_msg=await ch.send(embed=embed)
-    except Exception as e: print("board err",e)
+    except: pass
 
 bot.run(TOKEN)
