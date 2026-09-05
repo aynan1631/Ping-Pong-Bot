@@ -1,35 +1,44 @@
-import os
-import discord
+import os, discord, requests, threading
 from discord.ext import tasks
 from datetime import datetime
 from flask import Flask
-import threading
 
-# --- حل مشكلة Render - لازم بورت ---
+# سيرفر Render
 app = Flask(__name__)
 @app.route('/')
-def home():
-    return "Ping-Pong-Bot Live ✅"
+def home(): return "Bot Live ✅"
 def run_web():
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
 threading.Thread(target=run_web, daemon=True).start()
-# ----------------------------------
 
 TOKEN = os.getenv("DISCORD_TOKEN")
-CHANNEL_ID = 1538955402513747981  # روم general حقك
+CHANNEL_ID = 1538955402513747981 # غيّرها اذا رومك ثاني
 
 intents = discord.Intents.default()
 intents.message_content = True
 bot = discord.Client(intents=intents)
 
-# الصفقات اللي ظاهرة عندك في الصورة
-open_trades = {
-    "XRPUSDT": 1.42,
-    "ETHUSDT": 2.04
+# ========= عدل صفقاتك المفتوحة هنا فقط =========
+trades = {
+    "XRPUSDT": {"entry": 1.35, "qty": 100},
+    "ETHUSDT": {"entry": 1.95, "qty": 50}
 }
+# ==============================================
 
 dashboard_msg = None
+
+def get_live_price(symbol):
+    mapping = {"XRPUSDT":"ripple","ETHUSDT":"ethereum","BTCUSDT":"bitcoin","SOLUSDT":"solana"}
+    try:
+        cid = mapping.get(symbol)
+        if cid:
+            r = requests.get(f"https://api.coingecko.com/api/v3/simple/price?ids={cid}&vs_currencies=usd", timeout=5).json()
+            return float(r[cid]['usd'])
+    except: pass
+    try:
+        r = requests.get(f"https://www.okx.com/api/v5/market/ticker?instId={symbol.replace('USDT','-USDT')}", timeout=5).json()
+        return float(r['data'][0]['last'])
+    except: return 0
 
 @bot.event
 async def on_ready():
@@ -37,71 +46,66 @@ async def on_ready():
     if not live_board.is_running():
         live_board.start()
 
-@tasks.loop(seconds=30)
+@tasks.loop(seconds=15)
 async def live_board():
     global dashboard_msg
     channel = bot.get_channel(CHANNEL_ID)
-    if not channel:
-        # لو ما لقى الروم بالـ ID يحاول يدور general
-        for ch in bot.get_all_channels():
-            if str(ch.name) == "general":
-                channel = ch
-                break
-    if not channel:
-        print("Channel not found")
-        return
+    if not channel: return
 
     try:
+        txt = ""
+        total_profit = 0
+        total_loss = 0
+        count_win = 0
+        count_lose = 0
+
+        for sym, data in trades.items():
+            entry = data['entry']
+            current = get_live_price(sym)
+            if current == 0: return
+
+            pnl = (current - entry) * data['qty']
+
+            if pnl >= 0:
+                total_profit += pnl
+                count_win += 1
+                emoji = "🟢"
+            else:
+                total_loss += pnl
+                count_lose += 1
+                emoji = "🔴"
+
+            txt += f"{emoji} **{sym}**\n"
+            txt += f"سعر الدخول: `{entry}`\n"
+            txt += f"السعر الحالي: `{current:.4f}`\n"
+            txt += f"ربح/خسارة الصفقة: `{pnl:.2f}$`\n\n"
+
+        net = total_profit + total_loss
+
         embed = discord.Embed(
-            title="📊 الصفقات المفتوحة:",
-            description=f"• XRPUSDT: {open_trades.get('XRPUSDT', 0)}$\n• ETHUSDT: {open_trades.get('ETHUSDT', 0)}$" if open_trades else "لا يوجد صفقات مفتوحة",
-            color=0x00ff00 if open_trades else 0xff0000,
+            title="📊 الصفقات المفتوحة",
+            description=txt if txt else "لا يوجد صفقات مفتوحة حالياً",
+            color=0x00ff00 if net >=0 else 0xff0000,
             timestamp=datetime.now()
         )
-        embed.add_field(name="الحالة", value=f"يوجد {len(open_trades)} صفقات مفتوحة", inline=True)
-        embed.add_field(name="التحديث", value="كل 30 ثانية تلقائياً", inline=True)
-        embed.set_footer(text="Ping-Pong-Bot Live • Render + UptimeRobot")
+        embed.add_field(name="💰 الأرباح", value=f"+{total_profit:.2f}$", inline=True)
+        embed.add_field(name="📉 الخساير", value=f"{total_loss:.2f}$", inline=True)
+        embed.add_field(name="💵 صافي الأرباح", value=f"**{net:.2f}$**", inline=True)
+        embed.add_field(name="✅ عدد الصفقات الرابحة", value=str(count_win), inline=True)
+        embed.add_field(name="❌ عدد الصفقات الخاسرة", value=str(count_lose), inline=True)
+        embed.add_field(name="📈 إجمالي المفتوح", value=f"{len(trades)} صفقات", inline=True)
+        embed.set_footer(text="تحديث حي كل 15 ثانية • بدون أوامر")
 
         if dashboard_msg:
             await dashboard_msg.edit(embed=embed)
-            print(f"Dashboard updated: {datetime.now()}")
         else:
+            async for m in channel.history(limit=15):
+                if m.author == bot.user and m.embeds:
+                    try: await m.delete()
+                    except: pass
             dashboard_msg = await channel.send(embed=embed)
-            print(f"Dashboard sent new: {dashboard_msg.id}")
 
     except Exception as e:
-        print(f"Board Error: {e}")
-        dashboard_msg = None
-
-@bot.event
-async def on_message(message):
-    global open_trades, dashboard_msg
-    if message.author.bot:
-        return
-
-    content = message.content.strip()
-
-    if content == "الالة":
-        await message.channel.send("الآلة شغالة ✅ Live على Render")
-    
-    elif content == "الحالة" or "الحالة" in content:
-        await message.channel.send(f"الحالة: يوجد {len(open_trades)} صفقات مفتوحة")
-    
-    elif content == "الارباح" or "الارباح" in content:
-        if open_trades:
-            txt = " | ".join([f"{k.replace('USDT','')}: {v}$" for k,v in open_trades.items()])
-            await message.channel.send(f"الأرباح: {txt}")
-        else:
-            await message.channel.send("الأرباح: لا يوجد صفقات")
-    
-    elif content == "تصفير":
-        open_trades.clear()
-        await message.channel.send("تم تصفير الأرباح ✅")
-        # يحدث اللوحة فوراً بعد التصفير
-        if dashboard_msg:
-            try:
-                await dashboard_msg.edit(embed=discord.Embed(title="📊 الصفقات المفتوحة:", description="تم التصفير - لا يوجد صفقات", color=0xff0000, timestamp=datetime.now()))
-            except:
-                pass
+        print(f"Error: {e}")
 
 bot.run(TOKEN)
