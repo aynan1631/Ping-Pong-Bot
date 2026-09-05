@@ -5,7 +5,7 @@ from flask import Flask
 
 app = Flask(__name__)
 @app.route('/')
-def home(): return "7 Coins Hedge ✅"
+def home(): return "FAST Gold ✅"
 def run_web():
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
 threading.Thread(target=run_web, daemon=True).start()
@@ -13,7 +13,7 @@ threading.Thread(target=run_web, daemon=True).start()
 TOKEN = os.getenv("DISCORD_TOKEN")
 CHANNEL_ID = 1538955402513747981
 CAPITAL, TP, SL = 500.0, 5.0, -5.0
-dashboard_msg, trades, cooldown = None, {}, 0
+dashboard_msg, trades = None, {}
 COINS = ["BTCUSDT","ETHUSDT","DOGEUSDT","SOLUSDT","XRPUSDT","BNBUSDT","AVAXUSDT"]
 
 intents = discord.Intents.default()
@@ -22,7 +22,7 @@ bot = discord.Client(intents=intents)
 
 def price(s):
     try:
-        r=requests.get(f"https://www.okx.com/api/v5/market/ticker?instId={s.replace('USDT','-USDT')}",timeout=3).json()
+        r=requests.get(f"https://www.okx.com/api/v5/market/ticker?instId={s.replace('USDT','-USDT')}",timeout=2).json()
         return float(r['data'][0]['last'])
     except: return 0
 
@@ -33,11 +33,10 @@ def get_movers():
 
 def get_ema200():
     try:
-        d=requests.get("https://www.okx.com/api/v5/market/candles?instId=BTC-USDT&bar=4H&limit=250",timeout=5).json()['data']
+        d=requests.get("https://www.okx.com/api/v5/market/candles?instId=BTC-USDT&bar=4H&limit=250",timeout=4).json()['data']
         closes=[float(c[4]) for c in d][::-1]
         ema=closes[0]
-        k=2/201
-        for p in closes[1:]: ema=p*k+ema*(1-k)
+        for p in closes[1:]: ema=p*0.00995+ema*0.99005
         return ema, closes[-1]
     except: return None,0
 
@@ -48,20 +47,18 @@ async def on_ready():
 
 @bot.event
 async def on_message(msg):
-    global trades, dashboard_msg, cooldown
+    global trades, dashboard_msg
     if msg.author==bot.user or msg.channel.id!=CHANNEL_ID: return
     if msg.content.strip().lower() in ["تصفير","reset"]:
-        trades.clear(); cooldown=0
+        trades.clear()
         if dashboard_msg:
             try: await dashboard_msg.delete()
             except: pass
             dashboard_msg=None
-        await msg.channel.send("✅ تم التصفير")
+        await msg.channel.send("✅ تم التصفير - سريع")
 
-@tasks.loop(seconds=15)
+@tasks.loop(seconds=5) # كان كل 5 ثواني مو 15
 async def auto_entry():
-    global trades, cooldown
-    if cooldown>0: cooldown-=15; return
     if len(trades)>=2: return
     ch=bot.get_channel(CHANNEL_ID)
     up, down = get_movers()
@@ -70,12 +67,11 @@ async def auto_entry():
         cur=price(sym)
         if cur==0: continue
         trades[sym]={"entry":cur,"side":side,"qty":CAPITAL/cur}
-        if ch: await ch.send(f"🤖 دخول {sym} {side} {cur:.4f}")
-        await asyncio.sleep(1)
+        if ch: await ch.send(f"🤖 دخول {sym} {side}")
 
-@tasks.loop(seconds=3)
+@tasks.loop(seconds=2) # لوحة سريعة كل ثانيتين
 async def live_board():
-    global dashboard_msg, trades, cooldown
+    global dashboard_msg, trades
     ch=bot.get_channel(CHANNEL_ID)
     if not ch: return
     try:
@@ -91,15 +87,16 @@ async def live_board():
             else: loss+=abs(pnl); lose+=1
             txt+=f"**{sym} {d['side']}**\nسعر الدخول: {d['entry']:.4f} | الحالي: {cur:.4f}\nالربح: {pnl:.2f}$\n\n"
         for sym,pnl in to_close:
-            del trades[sym]; cooldown=30
-            await ch.send(f"🔒 قفل {sym} {pnl:.2f}$")
+            del trades[sym]
+            await ch.send(f"🔒 قفل {sym} {pnl:.2f}$ - دخول جديد فورا")
+            # بدون انتظار - يدخل فورا مثل اول
         if not txt: txt="لا يوجد صفقات مفتوحة"
         embed=discord.Embed(title="📊 الصفقات المفتوحة", description=header+txt, color=0x2ecc71)
         embed.add_field(name="✅ صفقات رابحة", value=str(win), inline=False)
         embed.add_field(name="💰 الأرباح", value=f"{profit:.2f}$", inline=True)
         embed.add_field(name="📉 الخساير", value=f"{loss:.2f}$", inline=True)
         embed.add_field(name="❌ صفقات خاسرة", value=str(lose), inline=True)
-        embed.add_field(name="\u200b", value=f"رأس المال {CAPITAL}$ | TP {TP}$ | SL {SL}$ | فحص كل 3 ثواني\nToday at {datetime.now().strftime('%I:%M %p')}", inline=False)
+        embed.add_field(name="\u200b", value=f"رأس المال {CAPITAL}$ | TP {TP}$ | SL {SL}$ | فحص كل ثانيتين\nToday at {datetime.now().strftime('%I:%M %p')}", inline=False)
         embed.timestamp=datetime.now()
         if dashboard_msg: await dashboard_msg.edit(embed=embed)
         else:
