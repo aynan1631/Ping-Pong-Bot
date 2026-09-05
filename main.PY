@@ -24,18 +24,19 @@ bot = discord.Client(intents=intents)
 
 async def price_loop():
     global price_cache
-    while True:
-        try:
-            async with aiohttp.ClientSession() as session:
+    # نستخدم جلسة واحدة طول الوقت أسرع وأخف
+    async with aiohttp.ClientSession() as session:
+        while True:
+            try:
                 async with session.get("https://www.okx.com/api/v5/market/tickers?instType=SPOT", timeout=10) as r:
                     data = await r.json()
                     for x in data.get('data', []):
                         sym = x['instId'].replace('-','')
                         if sym in COINS:
                             price_cache[sym] = float(x['last'])
-        except Exception as e:
-            print(f"price error: {e}")
-        await asyncio.sleep(2)
+            except Exception as e:
+                print(f"price error: {e}")
+            await asyncio.sleep(3) # كل 3 ثواني كفاية
 
 @bot.event
 async def on_ready():
@@ -58,7 +59,7 @@ async def on_message(msg):
             dashboard_msg=None
         await msg.channel.send("✅ تصفير - استراتيجية مجنونة جاهزة 🔥")
 
-@tasks.loop(seconds=2)
+@tasks.loop(seconds=5) # كان 2 ثانية = سبام
 async def crazy_entry():
     if len(trades)>=MAX: return
     avail=[c for c in COINS if c not in trades]
@@ -71,7 +72,7 @@ async def crazy_entry():
     ch=bot.get_channel(CHANNEL_ID)
     if ch: await ch.send(f"🎲 مجنون {sym} {side} -> {len(trades)}/{MAX}")
 
-@tasks.loop(seconds=1)
+@tasks.loop(seconds=2) # كان كل ثانية كثير
 async def crazy_close():
     global trades, total_realized
     if not trades: return
@@ -89,7 +90,7 @@ async def crazy_close():
         trades.clear()
         if ch: await ch.send(f"💰 هروب مجنون صافي {total_net:.2f}$ | مقفلة {total_realized:.2f}$ 🔥")
 
-@tasks.loop(seconds=3)
+@tasks.loop(seconds=8) # أهم تعديل! كان 3 ثواني يجيب باند 429
 async def live_board():
     global dashboard_msg
     ch=bot.get_channel(CHANNEL_ID)
@@ -113,18 +114,24 @@ async def live_board():
     embed=discord.Embed(title=f"🎲 مجنون {len(trades)}/{MAX} | صافي {total_net:.2f}$", description=txt, color=0xff00ff)
     embed.add_field(name="\u200b", value=footer, inline=False)
     try:
-        if dashboard_msg: await dashboard_msg.edit(embed=embed)
+        if dashboard_msg:
+            await dashboard_msg.edit(embed=embed)
         else:
-            async for m in ch.history(limit=10):
-                if m.author==bot.user and m.embeds:
-                    try: await m.delete()
-                    except: pass
+            # نمسح بس أول مرة عشان لا نسبب ريت ليميت
             dashboard_msg=await ch.send(embed=embed)
+    except discord.errors.HTTPException as e:
+        if e.status == 429:
+            print(f"Rate limit! Waiting {e.retry_after}")
+            await asyncio.sleep(10)
+        pass
     except: pass
 
-@tasks.loop(minutes=10)
+@tasks.loop(minutes=4) # كل 4 دقايق يصحصح نفسه
 async def keep_alive():
     try:
+        # يحاول يصحي نفسه داخليا
+        requests.get("http://127.0.0.1:10000/", timeout=5)
+        # واذا فيه رابط خارجي من Render
         url = os.getenv("RENDER_EXTERNAL_URL")
         if url:
             requests.get(url, timeout=5)
