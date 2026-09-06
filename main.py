@@ -1,85 +1,83 @@
+import os, asyncio, threading
+from flask import Flask, render_template_string
+import discord
+from discord.ext import commands
+
+app = Flask(__name__)
+
+# ===== بيانات وهمية للتجربة - بوتك يحدثها =====
+DATA = {
+    "total_balance": 1000,
+    "realized": 0,
+    "floating": 0,
+    "used": 0,
+    "total": 1000,
+    "btc_status": "BTC فوق 100 صاعد 🟢",
+    "positions": {},
+    "closed": []
+}
+
 DASHBOARD_HTML = """
 <!DOCTYPE html>
 <html dir="rtl" lang="ar">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Dashboard V8 PRO</title>
-<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&display=swap" rel="stylesheet">
+<title>لوحة المتابعة الخرافية</title>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@700&display=swap" rel="stylesheet">
 <style>
-*{font-family:'Cairo',Tahoma}
-body{background:#0a0e13;color:#e6e6e6;margin:0;padding:12px}
-.header{display:flex;justify-content:space-between;align-items:center;background:linear-gradient(135deg,#0f2027,#203a43,#2c5364);padding:16px;border-radius:16px;margin-bottom:12px}
-.header h1{margin:0;font-size:20px}
-.header .live{width:10px;height:10px;background:#00ff88;border-radius:50%;display:inline-block;animation:blink 1s infinite}
-@keyframes blink{0%,100%{opacity:1}50%{opacity:0.2}}
-.stats{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
-.stat{background:#141a22;border:1px solid #1f2a38;border-radius:14px;padding:12px;text-align:center}
-.stat .label{font-size:11px;color:#8b9bb4}
-.stat .value{font-size:18px;font-weight:700;margin-top:4px}
-.profit{color:#00ff88}.loss{color:#ff3b5c}
-.card{background:#141a22;border:1px solid #1f2a38;border-radius:16px;padding:12px;margin-bottom:12px;overflow-x:auto}
-table{width:100%;border-collapse:collapse;min-width:500px}
-th{background:#0f141c;color:#8b9bb4;font-size:11px;padding:12px 8px;text-align:center}
-td{padding:14px 8px;text-align:center;font-size:13px;border-bottom:1px solid #1e2a3a}
-.badge{padding:5px 12px;border-radius:20px;font-weight:700;font-size:11px}
-.badge-LONG{background:linear-gradient(135deg,#00ff88,#00cc6a);color:#000}
-.badge-SHORT{background:linear-gradient(135deg,#ff3b5c,#cc2f4a);color:#fff}
-.coin{font-weight:700;font-size:14px}
-.price{font-family:monospace}
-.pill{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;background:#0f141c}
-</style>
-<meta http-equiv="refresh" content="10">
+*{font-family:Cairo,Tahoma}body{background:#080b10;color:#fff;margin:0;padding:10px}
+.hdr{background:linear-gradient(90deg,#00ff88,#00b4ff);color:#000;padding:14px;border-radius:14px;font-weight:700;display:flex;justify-content:space-between}
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0}
+.c{background:#151b26;border-radius:12px;padding:10px;text-align:center;border:1px solid #222}
+.c b{font-size:20px;display:block}
+table{width:100%;border-collapse:collapse;background:#151b26;border-radius:12px;overflow:hidden}
+th{background:#0f121a;padding:10px;font-size:11px;color:#888}
+td{padding:12px 6px;text-align:center;border-bottom:1px solid #222;font-size:12px}
+.LONG{background:#00ff88;color:#000;padding:4px 10px;border-radius:20px;font-weight:700}
+.SHORT{background:#ff2d55;color:#fff;padding:4px 10px;border-radius:20px;font-weight:700}
+.profit{color:#00ff88}.loss{color:#ff2d55}
+</style><meta http-equiv="refresh" content="5">
 </head>
 <body>
-<div class="header">
-<h1>🚀 V8 PRO - العملات السريعة <span class="live"></span></h1>
-<div style="font-size:11px">{{btc_status}}</div>
+<div class="hdr"><span>🚀 V8 - العملات السريعة LIVE</span><span>{{btc_status}}</span></div>
+<div class="cards">
+<div class="c">الرصيد الكلي<b>{{total_balance}}$</b></div>
+<div class="c">المحققة<b class="{{'profit' if realized>=0 else 'loss'}}">{{realized}}$</b></div>
+<div class="c">العائمة<b class="{{'profit' if floating>=0 else 'loss'}}">{{floating}}$</b></div>
+<div class="c">المستخدم<b>{{used}}$</b></div>
 </div>
-
-<div class="stats">
-<div class="stat"><div class="label">الرصيد الكلي</div><div class="value">{{total_balance}}$</div></div>
-<div class="stat"><div class="label">الأرباح المحققة</div><div class="value {{'profit' if realized>=0 else 'loss'}}">{{realized}}$</div></div>
-<div class="stat"><div class="label">الأرباح العائمة</div><div class="value {{'profit' if floating>=0 else 'loss'}}">{{floating}}$</div></div>
-<div class="stat"><div class="label">رأس المال المستخدم</div><div class="value">{{used}} / {{total}}$</div></div>
-</div>
-
-<div class="card">
-<h3 style="margin:0 0 10px 0">🔓 الصفقات المفتوحة - ربح مفتوح</h3>
 <table>
-<tr><th>شراء / بيع</th><th>اسم العملة</th><th>سعر الدخول</th><th>السعر الحالي</th><th>الربح العائم</th><th>النسبة</th></tr>
+<tr><th>شراء/بيع</th><th>العملة</th><th>دخول</th><th>حالي</th><th>الربح العائم</th><th>النسبة</th></tr>
 {% for s,d in positions.items() %}
-<tr>
-<td><span class="badge badge-{{d.side}}">{{'🟢 شراء' if d.side=='LONG' else '🔴 بيع'}} {{d.side}}</span></td>
-<td class="coin">{{s.replace('USDT','')}}</td>
-<td class="price">{{d.entry_price}}</td>
-<td class="price">{{d.current_price}}</td>
-<td class="{{'profit' if d.pnl>=0 else 'loss'}}"><b>{{d.pnl}}$</b></td>
-<td class="{{'profit' if d.pnl>=0 else 'loss'}}">{{d.pnl_pct}}%</td>
-</tr>
-{% else %}
-<tr><td colspan=6 style="color:#666;padding:30px">لا يوجد صفقات مفتوحة حالياً - بانتظار العملات السريعة...</td></tr>
-{% endfor %}
+<tr><td><span class="{{d.side}}">{{'شراء' if d.side=='LONG' else 'بيع'}}</span></td><td>{{s}}</td><td>{{d.entry_price}}</td><td>{{d.current_price}}</td><td class="{{'profit' if d.pnl>=0 else 'loss'}}">{{d.pnl}}$</td><td class="{{'profit' if d.pnl>=0 else 'loss'}}">{{d.pnl_pct}}%</td></tr>
+{% else %}<tr><td colspan=6 style="padding:25px;color:#666">لا يوجد صفقات - بانتظار الإشارات...</td></tr>{% endfor %}
 </table>
-</div>
-
-<div class="card">
-<h3 style="margin:0 0 10px 0">✅ الأرباح المحققة (المقفلة)</h3>
+<br>
 <table>
-<tr><th>العملة</th><th>النوع</th><th>دخول → خروج</th><th>الربح المحقق</th><th>الوقت</th></tr>
-{% for t in closed[-10:]|reverse %}
-<tr>
-<td class="coin">{{t.symbol}}</td>
-<td><span class="pill">{{t.side}}</span></td>
-<td class="price" style="font-size:11px">{{t.entry}} → {{t.exit}}</td>
-<td class="{{'profit' if t.pnl>=0 else 'loss'}}"><b>{{t.pnl}}$</b></td>
-<td style="font-size:11px;color:#888">{{t.time}}</td>
-</tr>
-{% else %}
-<tr><td colspan=5 style="color:#666">لا يوجد أرباح محققة بعد</td></tr>
-{% endfor %}
+<tr><th>العملة</th><th>دخول→خروج</th><th>المحقق</th><th>الوقت</th></tr>
+{% for t in closed[-10:]|reverse %}<tr><td>{{t.symbol}}</td><td>{{t.entry}}→{{t.exit}}</td><td class="{{'profit' if t.pnl>=0 else 'loss'}}">{{t.pnl}}$</td><td>{{t.time}}</td></tr>{% else %}<tr><td colspan=4 style="color:#666">لا يوجد</td></tr>{% endfor %}
 </table>
-</div>
-
-<div style="text-align:center;color:#555;font-size:10px;margin-top:10px">EMA 50×100 | BTC فوق 100 صاعد | تحت 100 هابط | تحديث كل 10 ثواني</div>
 </body></html>
 """
+
+@app.route("/")
+def home(): return "Bot Running"
+@app.route("/dashboard")
+def dash(): return render_template_string(DASHBOARD_HTML, **DATA)
+
+def run_flask():
+    port = int(os.environ.get("PORT", 8080))
+    print(f"V8 Dashboard ready on port {port}", flush=True)
+    app.run(host="0.0.0.0", port=port)
+
+# ===== شغل الويب + الديسكورد =====
+threading.Thread(target=run_flask, daemon=True).start()
+
+# بوت الديسكورد (اذا عندك)
+# bot = commands.Bot(...)
+# bot.run(os.getenv("DISCORD_TOKEN"))
+
+# لو ما عندك بوت ديسكورد وتبي اللوحة فقط، خلي الكود شغال كذا
+if __name__ == "__main__":
+    while True: 
+        import time; time.sleep(60)
