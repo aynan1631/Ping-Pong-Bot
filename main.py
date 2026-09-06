@@ -79,8 +79,7 @@ async def on_message(msg):
 
     elif text == "الرصيد":
         used = len(trades) * CAPITAL
-        current_equity = CAPITAL + total_realized + total_net
-        # مجموع راس المال للصفقات زي ما طلبت
+        current_equity = used + total_realized + total_net
         await msg.channel.send(
             f"💳 **الرصيد**\n"
             f"عدد الصفقات: {len(trades)}\n"
