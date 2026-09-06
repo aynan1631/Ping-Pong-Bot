@@ -1,5 +1,5 @@
 import os, discord, threading, random, asyncio, aiohttp, requests
-from discord.ext import tasks
+from discord.ext import commands
 from datetime import datetime
 from flask import Flask
 
@@ -20,8 +20,7 @@ price_cache = {c:0 for c in COINS}
 
 intents = discord.Intents.default()
 intents.message_content = True
-bot = discord.Client(intents=intents)
-
+bot = commands.Bot(command_prefix='!', intents=intents)
 async def price_loop():
     global price_cache
     # نستخدم جلسة واحدة طول الوقت أسرع وأخف
