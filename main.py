@@ -21,9 +21,9 @@ price_cache = {c:0 for c in COINS}
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix='!', intents=intents)
+
 async def price_loop():
     global price_cache
-    # نستخدم جلسة واحدة طول الوقت أسرع وأخف
     async with aiohttp.ClientSession() as session:
         while True:
             try:
@@ -35,7 +35,7 @@ async def price_loop():
                             price_cache[sym] = float(x['last'])
             except Exception as e:
                 print(f"price error: {e}")
-            await asyncio.sleep(3) # كل 3 ثواني كفاية
+            await asyncio.sleep(3)
 
 @bot.event
 async def on_ready():
@@ -49,8 +49,22 @@ async def on_ready():
 @bot.event
 async def on_message(msg):
     global trades, dashboard_msg, total_realized
-    if msg.author==bot.user or msg.channel.id!=CHANNEL_ID: return
-    if msg.content.strip().lower() in ["تصفير","reset"]:
+    if msg.author==bot.user or msg.channel.id!=CHANNEL_ID:
+        return
+
+    text = msg.content.strip()
+
+    # حساب الارباح اللحظية
+    sp=0; sl=0
+    for sym,d in list(trades.items()):
+        cur=price_cache.get(sym, d['entry'])
+        pnl=(cur-d['entry'])*d['qty'] if d['side']=='LONG' else (d['entry']-cur)*d['qty']
+        if pnl>=0: sp+=pnl
+        else: sl+=abs(pnl)
+    total_net=sp-sl
+
+    # ===== الأوامر بدون! =====
+    if text in ["تصفير","reset"]:
         trades.clear(); total_realized=0.0
         if dashboard_msg:
             try: await dashboard_msg.delete()
@@ -58,7 +72,39 @@ async def on_message(msg):
             dashboard_msg=None
         await msg.channel.send("✅ تصفير - استراتيجية مجنونة جاهزة 🔥")
 
-@tasks.loop(seconds=5) # كان 2 ثانية = سبام
+    elif text == "الحالة":
+        l=sum(1 for v in trades.values() if v['side']=='LONG')
+        s=sum(1 for v in trades.values() if v['side']=='SHORT')
+        await msg.channel.send(f"📊 **الحالة**\nصفقات مفتوحة: {len(trades)}/{MAX}\nLONG: {l} | SHORT: {s}\nالصافي الحالي: ${total_net:.2f}\nالمقفلة: ${total_realized:.2f}")
+
+    elif text == "الارباح":
+        await msg.channel.send(f"💰 **الارباح**\nالمقفلة الكلية: ${total_realized:.2f}\nأرباح حالية: ${sp:.2f}\nخساير حالية: ${sl:.2f}\nالصافي الحالي: ${total_net:.2f}")
+
+    elif text == "الرصيد":
+        current_equity = CAPITAL + total_realized + total_net
+        await msg.channel.send(f"💳 **الرصيد**\nرأس المال: ${CAPITAL:.2f}\nالمقفلة: ${total_realized:.2f}\nالصافي العائم: ${total_net:.2f}\n**الرصيد الكلي: ${current_equity:.2f}**")
+
+    elif text == "قفل":
+        if not trades:
+            await msg.channel.send("❌ مافي صفقات مفتوحة")
+        else:
+            last_sym = list(trades.keys())[-1]
+            d = trades.pop(last_sym)
+            cur = price_cache.get(last_sym, d['entry'])
+            pnl=(cur-d['entry'])*d['qty'] if d['side']=='LONG' else (d['entry']-cur)*d['qty']
+            total_realized+=pnl
+            await msg.channel.send(f"🔒 قفل {last_sym} {d['side']} بربح {pnl:.2f}$ | المقفلة صارت {total_realized:.2f}$")
+
+    elif text == "قفل الكل":
+        if not trades:
+            await msg.channel.send("❌ مافي صفقات مفتوحة")
+        else:
+            total_realized+=total_net
+            count=len(trades)
+            trades.clear()
+            await msg.channel.send(f"🔒🔒 قفل الكل {count} صفقات | صافي {total_net:.2f}$ | المقفلة الكلية {total_realized:.2f}$ 🔥")
+
+@tasks.loop(seconds=5)
 async def crazy_entry():
     if len(trades)>=MAX: return
     avail=[c for c in COINS if c not in trades]
@@ -71,7 +117,7 @@ async def crazy_entry():
     ch=bot.get_channel(CHANNEL_ID)
     if ch: await ch.send(f"🎲 مجنون {sym} {side} -> {len(trades)}/{MAX}")
 
-@tasks.loop(seconds=2) # كان كل ثانية كثير
+@tasks.loop(seconds=2)
 async def crazy_close():
     global trades, total_realized
     if not trades: return
@@ -89,7 +135,7 @@ async def crazy_close():
         trades.clear()
         if ch: await ch.send(f"💰 هروب مجنون صافي {total_net:.2f}$ | مقفلة {total_realized:.2f}$ 🔥")
 
-@tasks.loop(seconds=8) # أهم تعديل! كان 3 ثواني يجيب باند 429
+@tasks.loop(seconds=8)
 async def live_board():
     global dashboard_msg
     ch=bot.get_channel(CHANNEL_ID)
@@ -116,7 +162,6 @@ async def live_board():
         if dashboard_msg:
             await dashboard_msg.edit(embed=embed)
         else:
-            # نمسح بس أول مرة عشان لا نسبب ريت ليميت
             dashboard_msg=await ch.send(embed=embed)
     except discord.errors.HTTPException as e:
         if e.status == 429:
@@ -125,12 +170,10 @@ async def live_board():
         pass
     except: pass
 
-@tasks.loop(minutes=4) # كل 4 دقايق يصحصح نفسه
+@tasks.loop(minutes=4)
 async def keep_alive():
     try:
-        # يحاول يصحي نفسه داخليا
         requests.get("http://127.0.0.1:10000/", timeout=5)
-        # واذا فيه رابط خارجي من Render
         url = os.getenv("RENDER_EXTERNAL_URL")
         if url:
             requests.get(url, timeout=5)
