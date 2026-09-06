@@ -1,151 +1,85 @@
-import discord
-from discord.ext import commands, tasks
-import numpy as np
-import aiohttp
-import threading
-from flask import Flask
-import os
+DASHBOARD_HTML = """
+<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dashboard V8 PRO</title>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&display=swap" rel="stylesheet">
+<style>
+*{font-family:'Cairo',Tahoma}
+body{background:#0a0e13;color:#e6e6e6;margin:0;padding:12px}
+.header{display:flex;justify-content:space-between;align-items:center;background:linear-gradient(135deg,#0f2027,#203a43,#2c5364);padding:16px;border-radius:16px;margin-bottom:12px}
+.header h1{margin:0;font-size:20px}
+.header .live{width:10px;height:10px;background:#00ff88;border-radius:50%;display:inline-block;animation:blink 1s infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0.2}}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
+.stat{background:#141a22;border:1px solid #1f2a38;border-radius:14px;padding:12px;text-align:center}
+.stat .label{font-size:11px;color:#8b9bb4}
+.stat .value{font-size:18px;font-weight:700;margin-top:4px}
+.profit{color:#00ff88}.loss{color:#ff3b5c}
+.card{background:#141a22;border:1px solid #1f2a38;border-radius:16px;padding:12px;margin-bottom:12px;overflow-x:auto}
+table{width:100%;border-collapse:collapse;min-width:500px}
+th{background:#0f141c;color:#8b9bb4;font-size:11px;padding:12px 8px;text-align:center}
+td{padding:14px 8px;text-align:center;font-size:13px;border-bottom:1px solid #1e2a3a}
+.badge{padding:5px 12px;border-radius:20px;font-weight:700;font-size:11px}
+.badge-LONG{background:linear-gradient(135deg,#00ff88,#00cc6a);color:#000}
+.badge-SHORT{background:linear-gradient(135deg,#ff3b5c,#cc2f4a);color:#fff}
+.coin{font-weight:700;font-size:14px}
+.price{font-family:monospace}
+.pill{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;background:#0f141c}
+</style>
+<meta http-equiv="refresh" content="10">
+</head>
+<body>
+<div class="header">
+<h1>🚀 V8 PRO - العملات السريعة <span class="live"></span></h1>
+<div style="font-size:11px">{{btc_status}}</div>
+</div>
 
-TOKEN = os.getenv("DISCORD_TOKEN")
-CAPITAL_PER_TRADE = 500
-MAX_TRADES = 3
-TOTAL_CAPITAL = 1500
+<div class="stats">
+<div class="stat"><div class="label">الرصيد الكلي</div><div class="value">{{total_balance}}$</div></div>
+<div class="stat"><div class="label">الأرباح المحققة</div><div class="value {{'profit' if realized>=0 else 'loss'}}">{{realized}}$</div></div>
+<div class="stat"><div class="label">الأرباح العائمة</div><div class="value {{'profit' if floating>=0 else 'loss'}}">{{floating}}$</div></div>
+<div class="stat"><div class="label">رأس المال المستخدم</div><div class="value">{{used}} / {{total}}$</div></div>
+</div>
 
-# العملات الثقيلة - نبعد عنها
-HEAVY_COINS = ["BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT", "ADAUSDT", "AVAXUSDT", "DOTUSDT", "TRXUSDT", "LINKUSDT", "LTCUSDT", "BCHUSDT", "ETCUSDT"]
-BLACKLIST = ["USDTTRY", "TRY", "EUR", "USDC", "FDUSD", "BUSD"] + HEAVY_COINS
+<div class="card">
+<h3 style="margin:0 0 10px 0">🔓 الصفقات المفتوحة - ربح مفتوح</h3>
+<table>
+<tr><th>شراء / بيع</th><th>اسم العملة</th><th>سعر الدخول</th><th>السعر الحالي</th><th>الربح العائم</th><th>النسبة</th></tr>
+{% for s,d in positions.items() %}
+<tr>
+<td><span class="badge badge-{{d.side}}">{{'🟢 شراء' if d.side=='LONG' else '🔴 بيع'}} {{d.side}}</span></td>
+<td class="coin">{{s.replace('USDT','')}}</td>
+<td class="price">{{d.entry_price}}</td>
+<td class="price">{{d.current_price}}</td>
+<td class="{{'profit' if d.pnl>=0 else 'loss'}}"><b>{{d.pnl}}$</b></td>
+<td class="{{'profit' if d.pnl>=0 else 'loss'}}">{{d.pnl_pct}}%</td>
+</tr>
+{% else %}
+<tr><td colspan=6 style="color:#666;padding:30px">لا يوجد صفقات مفتوحة حالياً - بانتظار العملات السريعة...</td></tr>
+{% endfor %}
+</table>
+</div>
 
-intents = discord.Intents.default()
-intents.message_content = True
-bot = commands.Bot(command_prefix="!", intents=intents)
+<div class="card">
+<h3 style="margin:0 0 10px 0">✅ الأرباح المحققة (المقفلة)</h3>
+<table>
+<tr><th>العملة</th><th>النوع</th><th>دخول → خروج</th><th>الربح المحقق</th><th>الوقت</th></tr>
+{% for t in closed[-10:]|reverse %}
+<tr>
+<td class="coin">{{t.symbol}}</td>
+<td><span class="pill">{{t.side}}</span></td>
+<td class="price" style="font-size:11px">{{t.entry}} → {{t.exit}}</td>
+<td class="{{'profit' if t.pnl>=0 else 'loss'}}"><b>{{t.pnl}}$</b></td>
+<td style="font-size:11px;color:#888">{{t.time}}</td>
+</tr>
+{% else %}
+<tr><td colspan=5 style="color:#666">لا يوجد أرباح محققة بعد</td></tr>
+{% endfor %}
+</table>
+</div>
 
-app = Flask(__name__)
-@app.route('/')
-def home():
-    return "Bot V6 FAST MOVERS running"
-def run_flask():
-    app.run(host='0.0.0.0', port=8080)
-
-def calculate_ema(prices, period):
-    prices = np.array(prices)
-    ema = np.zeros_like(prices)
-    ema[0] = prices[0]
-    k = 2 / (period + 1)
-    for i in range(1, len(prices)):
-        ema[i] = prices[i] * k + ema[i-1] * (1 - k)
-    return ema
-
-def calculate_rsi(prices, period=14):
-    deltas = np.diff(prices)
-    gains = np.where(deltas > 0, deltas, 0)
-    losses = np.where(deltas < 0, -deltas, 0)
-    if len(gains) < period: return 50
-    avg_gain = np.mean(gains[-period:])
-    avg_loss = np.mean(losses[-period:])
-    if avg_loss == 0: return 70
-    rs = avg_gain / avg_loss
-    return 100 - (100 / (1 + rs))
-
-def calculate_sma(prices, period):
-    return np.mean(prices[-period:])
-
-async def get_klines(symbol, interval="5m", limit=150):
-    url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}"
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url) as resp:
-            data = await resp.json()
-            if isinstance(data, dict): return None
-            return [float(c[4]) for c in data]
-
-async def get_btc_trend():
-    closes = await get_klines("BTCUSDT", "15m", 150)
-    if closes is None: return True, 0, 0
-    ema100_arr = calculate_ema(closes, 100)
-    return closes[-1] > ema100_arr[-1], closes[-1], ema100_arr[-1]
-
-open_positions = {}
-
-@tasks.loop(minutes=1)
-async def scan_market():
-    is_btc_bullish, btc_price, btc_ema100 = await get_btc_trend()
-
-    url = "https://api.binance.com/api/v3/ticker/24hr"
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url) as resp:
-            tickers = await resp.json()
-
-    # فلترة العملات السريعة فقط
-    fast_movers = []
-    for t in tickers:
-        sym = t['symbol']
-        if not sym.endswith("USDT"): continue
-        if sym in BLACKLIST: continue
-        if any(b in sym for b in ["USDTTRY", "TRY"]): continue
-
-        change = abs(float(t['priceChangePercent']))
-        volume = float(t['quoteVolume']) # حجم بالدولار
-
-        # شرط السرعة: تتحرك اكثر من 3% وحجم اكثر من 20 مليون
-        if change >= 3.0 and volume > 20000000:
-            fast_movers.append(t)
-
-    # رتب حسب الأسرع
-    fast_movers = sorted(fast_movers, key=lambda x: abs(float(x['priceChangePercent'])), reverse=True)[:15]
-
-    channel = discord.utils.get(bot.get_all_channels(), name="general")
-
-    for item in fast_movers:
-        symbol = item['symbol']
-        try:
-            closes = await get_klines(symbol, "5m", 120) # 5 دقايق للسرعة
-            if closes is None or len(closes) < 100: continue
-
-            ema50_arr = calculate_ema(closes, 50)
-            ema100_arr = calculate_ema(closes, 100)
-            ema50, ema100 = ema50_arr[-1], ema100_arr[-1]
-            ema50_prev, ema100_prev = ema50_arr[-2], ema100_arr[-2]
-            rsi = calculate_rsi(closes, 14)
-            price = closes[-1]
-            sma20 = calculate_sma(closes, 20)
-            change = float(item['priceChangePercent'])
-
-            # خروج بالتقاطع
-            if symbol in open_positions:
-                side = open_positions[symbol]["side"]
-                if side == "LONG" and ema50_prev >= ema100_prev and ema50 < ema100:
-                    del open_positions[symbol]
-                    if channel: await channel.send(f"🔴 قفل LONG {symbol} - تقاطع هابط\nحركة اليوم {change:.1f}%")
-                elif side == "SHORT" and ema50_prev <= ema100_prev and ema50 > ema100:
-                    del open_positions[symbol]
-                    if channel: await channel.send(f"🟢 قفل SHORT {symbol} - تقاطع صاعد\nحركة اليوم {change:.1f}%")
-                continue
-
-            if len(open_positions) >= MAX_TRADES: continue
-
-            # دخول سريع
-            if is_btc_bullish:
-                if ema50 > ema100 and 25 < rsi < 45 and price < sma20:
-                    open_positions[symbol] = {"side": "LONG"}
-                    if channel: await channel.send(f"🚀 **LONG سريع** {symbol}\nحركة: {change:.1f}% | حجم: {float(item['quoteVolume'])/1e6:.1f}M\nEMA50>EMA100 ✅ | RSI {rsi:.1f}\nBTC {btc_price:.0f} فوق 100 ✅")
-            else:
-                if ema50 < ema100 and 55 < rsi < 75 and price > sma20:
-                    open_positions[symbol] = {"side": "SHORT"}
-                    if channel: await channel.send(f"🔻 **SHORT سريع** {symbol}\nحركة: {change:.1f}% | حجم: {float(item['quoteVolume'])/1e6:.1f}M\nEMA50<EMA100 🔴 | RSI {rsi:.1f}\nBTC {btc_price:.0f} تحت 100 🔴")
-
-        except: continue
-
-@bot.event
-async def on_ready():
-    print(f"V6 FAST ready {bot.user}")
-    scan_market.start()
-
-@bot.command()
-async def الحالة(ctx):
-    is_bull, btc_p, btc_e = await get_btc_trend()
-    trend = "صاعد LONG فقط" if is_bull else "هابط SHORT فقط"
-    used = len(open_positions) * CAPITAL_PER_TRADE
-    await ctx.send(f"📊 **V6 العملات السريعة**\nفلتر: حركة >3% + حجم >20M\nمستبعد: BTC ETH BNB SOL XRP...\nBTC: {btc_p:.0f} | EMA100: {btc_e:.0f} | {trend}\nالمستخدم: {used}/{TOTAL_CAPITAL}$\nالمفتوحة: {list(open_positions.keys())}")
-
-if __name__ == "__main__":
-    threading.Thread(target=run_flask).start()
-    bot.run(TOKEN)
+<div style="text-align:center;color:#555;font-size:10px;margin-top:10px">EMA 50×100 | BTC فوق 100 صاعد | تحت 100 هابط | تحديث كل 10 ثواني</div>
+</body></html>
+"""
