@@ -49,12 +49,9 @@ async def on_ready():
 @bot.event
 async def on_message(msg):
     global trades, dashboard_msg, total_realized
-    if msg.author==bot.user or msg.channel.id!=CHANNEL_ID:
-        return
-
+    if msg.author==bot.user or msg.channel.id!=CHANNEL_ID: return
     text = msg.content.strip()
 
-    # حساب الارباح اللحظية
     sp=0; sl=0
     for sym,d in list(trades.items()):
         cur=price_cache.get(sym, d['entry'])
@@ -63,7 +60,6 @@ async def on_message(msg):
         else: sl+=abs(pnl)
     total_net=sp-sl
 
-    # ===== الأوامر بدون! =====
     if text in ["تصفير","reset"]:
         trades.clear(); total_realized=0.0
         if dashboard_msg:
@@ -75,14 +71,25 @@ async def on_message(msg):
     elif text == "الحالة":
         l=sum(1 for v in trades.values() if v['side']=='LONG')
         s=sum(1 for v in trades.values() if v['side']=='SHORT')
-        await msg.channel.send(f"📊 **الحالة**\nصفقات مفتوحة: {len(trades)}/{MAX}\nLONG: {l} | SHORT: {s}\nالصافي الحالي: ${total_net:.2f}\nالمقفلة: ${total_realized:.2f}")
+        used = len(trades) * CAPITAL
+        await msg.channel.send(f"📊 **الحالة**\nصفقات مفتوحة: {len(trades)}/{MAX}\nLONG: {l} | SHORT: {s}\nرأس المال المستخدم: ${used:.2f}\nالصافي الحالي: ${total_net:.2f}")
 
     elif text == "الارباح":
-        await msg.channel.send(f"💰 **الارباح**\nالمقفلة الكلية: ${total_realized:.2f}\nأرباح حالية: ${sp:.2f}\nخساير حالية: ${sl:.2f}\nالصافي الحالي: ${total_net:.2f}")
+        await msg.channel.send(f"💰 **الارباح**\nالمقفلة: ${total_realized:.2f}\nأرباح حالية: ${sp:.2f}\nخساير حالية: ${sl:.2f}\nالصافي: ${total_net:.2f}")
 
     elif text == "الرصيد":
+        used = len(trades) * CAPITAL
         current_equity = CAPITAL + total_realized + total_net
-        await msg.channel.send(f"💳 **الرصيد**\nرأس المال: ${CAPITAL:.2f}\nالمقفلة: ${total_realized:.2f}\nالصافي العائم: ${total_net:.2f}\n**الرصيد الكلي: ${current_equity:.2f}**")
+        # مجموع راس المال للصفقات زي ما طلبت
+        await msg.channel.send(
+            f"💳 **الرصيد**\n"
+            f"عدد الصفقات: {len(trades)}\n"
+            f"رأس مال الصفقة الواحدة: ${CAPITAL:.2f}\n"
+            f"**مجموع رأس المال المستخدم: ${used:.2f}**\n"
+            f"المقفلة: ${total_realized:.2f}\n"
+            f"العائم: ${total_net:.2f}\n"
+            f"الرصيد الكلي: ${current_equity:.2f}"
+        )
 
     elif text == "قفل":
         if not trades:
@@ -93,7 +100,7 @@ async def on_message(msg):
             cur = price_cache.get(last_sym, d['entry'])
             pnl=(cur-d['entry'])*d['qty'] if d['side']=='LONG' else (d['entry']-cur)*d['qty']
             total_realized+=pnl
-            await msg.channel.send(f"🔒 قفل {last_sym} {d['side']} بربح {pnl:.2f}$ | المقفلة صارت {total_realized:.2f}$")
+            await msg.channel.send(f"🔒 قفل {last_sym} {d['side']} بربح {pnl:.2f}$ | المقفلة {total_realized:.2f}$")
 
     elif text == "قفل الكل":
         if not trades:
@@ -102,7 +109,7 @@ async def on_message(msg):
             total_realized+=total_net
             count=len(trades)
             trades.clear()
-            await msg.channel.send(f"🔒🔒 قفل الكل {count} صفقات | صافي {total_net:.2f}$ | المقفلة الكلية {total_realized:.2f}$ 🔥")
+            await msg.channel.send(f"🔒🔒 قفل الكل {count} صفقات | صافي {total_net:.2f}$ | المقفلة {total_realized:.2f}$ 🔥")
 
 @tasks.loop(seconds=5)
 async def crazy_entry():
@@ -165,7 +172,6 @@ async def live_board():
             dashboard_msg=await ch.send(embed=embed)
     except discord.errors.HTTPException as e:
         if e.status == 429:
-            print(f"Rate limit! Waiting {e.retry_after}")
             await asyncio.sleep(10)
         pass
     except: pass
@@ -175,8 +181,7 @@ async def keep_alive():
     try:
         requests.get("http://127.0.0.1:10000/", timeout=5)
         url = os.getenv("RENDER_EXTERNAL_URL")
-        if url:
-            requests.get(url, timeout=5)
+        if url: requests.get(url, timeout=5)
     except: pass
 
 bot.run(TOKEN)
