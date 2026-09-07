@@ -32,87 +32,90 @@ threading.Thread(target=bot_loop, daemon=True).start()
 
 HTML = """
 <!DOCTYPE html>
-<html dir="rtl">
+<html dir="rtl" lang="ar">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>V9.6 CONTROL</title>
-<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@900&display=swap" rel="stylesheet">
+<title>V9.7 BIG</title>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@900&family=Roboto:wght@900&display=swap" rel="stylesheet">
 <style>
-body{background:#050507;color:#fff;font-family:'Cairo',sans-serif;margin:0;padding:15px}
-.header{background:#121216;padding:20px 30px;border-radius:20px;display:flex;justify-content:space-between;align-items:center;border:1px solid #222;margin-bottom:20px}
-.header h1{font-size:30px;margin:0}
-.grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;margin-bottom:20px}
-.card{background:#111116;border:3px solid #222;border-radius:28px;padding:30px;text-align:center}
-.card.money{font-size:54px;font-weight:900}
-.control-panel{background:linear-gradient(145deg,#1a1a22,#111116);border:2px solid #ffbe0b;border-radius:28px;padding:30px;margin-bottom:20px}
-.control-panel h2{font-size:26px;margin:0 0 20px 0}
-.input-group{display:flex;gap:15px;align-items:center;flex-wrap:wrap}
-.input-group input{padding:20px 25px;border-radius:16px;border:2px solid #333;background:#050507;color:#fff;font-family:'Cairo';font-size:24px;font-weight:900;width:180px;text-align:center}
-.btn{padding:18px 28px;border-radius:16px;border:none;font-family:'Cairo';font-weight:900;font-size:20px;cursor:pointer}
-.btn-save{background:#ffbe0b;color:#000;font-size:22px}.btn-stop{background:#ff1a1a;color:#fff}.btn-start{background:#00ff88;color:#000}
-.btn-lock{background:#fff;color:#000;width:100%;font-size:24px;padding:22px;margin-top:15px}
-.table-wrap{background:#111116;border:1px solid #222;border-radius:28px;padding:30px}
-table{width:100%;border-collapse:collapse} th{color:#666;font-size:18px;padding:18px} td{padding:24px 12px;font-size:22px;font-weight:900;border-top:2px solid #1e1e24;text-align:center}
+/* فرض أرقام انجليزية */
+*{box-sizing:border-box}
+body{background:#050507;color:#fff;font-family:'Cairo',sans-serif;margin:0;padding:15px;-webkit-text-size-adjust:100%}
+.en{font-family:'Roboto','Cairo',sans-serif!important;direction:ltr;display:inline-block;unicode-bidi:plaintext;font-variant-numeric:lining-nums}
+.header{background:#121216;padding:24px 32px;border-radius:22px;display:flex;justify-content:space-between;align-items:center;border:1px solid #222;margin-bottom:22px}
+.header h1{font-size:34px;margin:0;font-weight:900}
+.grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:22px;margin-bottom:22px}
+.card{background:#111116;border:4px solid #222;border-radius:30px;padding:40px 25px;text-align:center}
+.card.icon{font-size:58px}
+.card.label{font-size:22px;color:#888;font-weight:900;margin:12px 0}
+.card.money{font-size:62px;font-weight:900;line-height:1.1}
+.control-panel{background:#1a1a22;border:3px solid #ffbe0b;border-radius:30px;padding:32px;margin-bottom:22px}
+.control-panel h2{font-size:30px;margin:0 0 20px 0}
+.input-group{display:flex;gap:18px;align-items:center;flex-wrap:wrap}
+.input-group input{padding:22px 28px;border-radius:18px;border:3px solid #333;background:#050507;color:#fff;font-family:'Roboto',sans-serif;font-size:32px;font-weight:900;width:220px;text-align:center;direction:ltr}
+.btn{padding:20px 30px;border-radius:18px;border:none;font-family:'Cairo';font-weight:900;font-size:22px;cursor:pointer}
+.btn-save{background:#ffbe0b;color:#000;font-size:24px}.btn-stop{background:#ff1a1a;color:#fff;width:260px;font-size:24px}.btn-start{background:#00ff88;color:#000;width:260px;font-size:24px}
+.btn-lock{background:#fff;color:#000;width:100%;font-size:28px;padding:26px;margin-top:18px}
+.table-wrap{background:#111116;border:2px solid #222;border-radius:30px;padding:32px}
+table{width:100%;border-collapse:collapse} th{color:#777;font-size:20px;padding:20px 10px} td{padding:28px 14px;font-size:26px;font-weight:900;border-top:3px solid #1e1e24;text-align:center}
 .pos{color:#00ff88}.neg{color:#ff3b3b}
 </style>
 </head>
 <body>
-<div class="header"><h1>👑 لوحة الريس V9.6 ● LIVE</h1><div id="status" style="font-size:22px;font-weight:900;background:#00ff88;color:#000;padding:10px 22px;border-radius:40px">🟢 شغال</div></div>
+<div class="header"><h1>👑 لوحة الريس <span class="en">V9.7 LIVE</span></h1><div id="status" style="font-size:26px;font-weight:900;background:#00ff88;color:#000;padding:12px 26px;border-radius:50px">🟢 شغال</div></div>
 
 <div class="grid">
-<div class="card" style="border-color:#00ff88"><div style="font-size:50px">💰</div><div style="color:#888;font-size:20px">الأساسي</div><div class="money" style="color:#00ff88">$1000</div></div>
-<div class="card" id="floatingCard" style="border-color:#ffbe0b"><div style="font-size:50px">📈</div><div style="color:#888;font-size:20px">العائم</div><div class="money" id="floatingMoney">$0.00</div></div>
-<div class="card" style="border-color:#00d4ff"><div style="font-size:50px">🏦</div><div style="color:#888;font-size:20px">المحقق</div><div class="money" style="color:#00d4ff">$<span id="realized">0</span></div></div>
+<div class="card" style="border-color:#00ff88"><div class="icon">💰</div><div class="label">الرصيد الأساسي</div><div class="money en" style="color:#00ff88">$1000</div></div>
+<div class="card" id="floatingCard" style="border-color:#ffbe0b"><div class="icon">📈</div><div class="label">الرصيد العائم</div><div class="money en" id="floatingMoney">$0.00</div></div>
+<div class="card" style="border-color:#00d4ff"><div class="icon">🏦</div><div class="label">الربح المحقق</div><div class="money en" style="color:#00d4ff">$<span id="realized" class="en">0</span></div></div>
 </div>
 
 <div class="control-panel">
 <h2>⚙️ التحكم برأس المال</h2>
 <div class="input-group">
-<span style="font-size:20px;font-weight:900">رأس مال كل صفقة:</span>
+<span style="font-size:24px;font-weight:900">رأس مال كل صفقة:</span>
 <input type="number" id="capitalInput" value="200" min="10" step="10">
-<span style="font-size:22px;font-weight:900">$</span>
+<span style="font-size:28px;font-weight:900">$</span>
 <button class="btn btn-save" onclick="saveCapital()">💾 حفظ وتطبيق</button>
-<span style="font-size:16px;color:#888">الصفقات الجديدة راح تفتح بالمبلغ الجديد</span>
 </div>
-<div style="margin-top:15px;display:flex;gap:10px">
-<button class="btn" style="background:#222;color:#fff" onclick="setCap(50)">50$</button>
-<button class="btn" style="background:#222;color:#fff" onclick="setCap(100)">100$</button>
-<button class="btn" style="background:#ffbe0b;color:#000" onclick="setCap(200)">200$</button>
-<button class="btn" style="background:#222;color:#fff" onclick="setCap(500)">500$</button>
+<div style="margin-top:18px;display:flex;gap:12px">
+<button class="btn" style="background:#222;color:#fff;font-size:22px" onclick="setCap(50)"><span class="en">50$</span></button>
+<button class="btn" style="background:#222;color:#fff;font-size:22px" onclick="setCap(100)"><span class="en">100$</span></button>
+<button class="btn" style="background:#ffbe0b;color:#000;font-size:22px" onclick="setCap(200)"><span class="en">200$</span></button>
+<button class="btn" style="background:#222;color:#fff;font-size:22px" onclick="setCap(500)"><span class="en">500$</span></button>
 </div>
 </div>
 
 <div class="table-wrap">
-<button id="toggleBtn" class="btn btn-stop" onclick="toggleBot()">إيقاف</button>
-<button class="btn btn-lock" onclick="closeAll()">🔒 قفل الصفقات</button>
-<h2 style="font-size:32px;margin:35px 0 15px 0">💎 الصفقات الحية</h2>
+<button id="toggleBtn" class="btn btn-stop" onclick="toggleBot()">⏸️ إيقاف البوت</button>
+<button class="btn btn-lock" onclick="closeAll()">🔒 قفل الصفقات وتحويل العائم إلى محقق</button>
+<h2 style="font-size:34px;margin:40px 0 18px 0">💎 الصفقات الحية - كل صفقة <span class="en">$${CAPITAL}$$</span></h2>
 <table><thead><tr><th>العملة</th><th>النوع</th><th>رأس المال</th><th>دخول</th><th>حالي LIVE</th><th>ربح $</th><th>%</th></tr></thead><tbody id="tradesBody"></tbody></table>
 </div>
 
 <script>
 function setCap(v){document.getElementById('capitalInput').value=v; saveCapital();}
 function saveCapital(){
-  let v = document.getElementById('capitalInput').value;
+  let v=document.getElementById('capitalInput').value;
   fetch('/api/set_capital',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({capital:parseFloat(v)})}).then(r=>r.json()).then(d=>{
-    alert('تم ✅ رأس مال الصفقة الجديدة صار $'+v+' - الصفقات القديمة تبقى على رأس مالها القديم');
-    load();
+    alert('تم ✅ صار $'+v);load();
   });
 }
 function load(){
 fetch('/api/data').then(r=>r.json()).then(d=>{
- document.getElementById('capitalInput').value = d.capital_per_trade;
- document.getElementById('status').innerText = d.is_running? '🟢 شغال' : '🔴 متوقف';
- document.getElementById('realized').innerText = d.realized_profit.toFixed(2);
+ document.getElementById('capitalInput').value=d.capital_per_trade;
+ document.getElementById('status').innerText=d.is_running?'🟢 شغال':'🔴 متوقف';
+ document.getElementById('realized').innerText=d.realized_profit.toFixed(2);
  let floatingEl=document.getElementById('floatingMoney');
  let floatingCard=document.getElementById('floatingCard');
  let val=d.floating;
  floatingEl.innerText=(val>=0? '$'+val.toFixed(2) : '-$'+Math.abs(val).toFixed(2));
- if(val>0){floatingEl.style.color='#00ff88';floatingCard.style.borderColor='#00ff88';floatingCard.style.boxShadow='0 0 25px rgba(0,255,136,0.3)'}
- else if(val<0){floatingEl.style.color='#ff3b3b';floatingCard.style.borderColor='#ff3b3b';floatingCard.style.boxShadow='0 0 25px rgba(255,59,59,0.3)'}
+ if(val>0){floatingEl.style.color='#00ff88';floatingCard.style.borderColor='#00ff88';floatingCard.style.boxShadow='0 0 30px rgba(0,255,136,0.4)'}
+ else if(val<0){floatingEl.style.color='#ff3b3b';floatingCard.style.borderColor='#ff3b3b';floatingCard.style.boxShadow='0 0 30px rgba(255,59,59,0.4)'}
  else{floatingEl.style.color='#ffbe0b';floatingCard.style.borderColor='#ffbe0b';floatingCard.style.boxShadow='none'}
  let html=''; d.trades.forEach(t=>{
   let cls=t.profit_usd>=0?'pos':'neg';
-  html+=`<tr><td>${t.coin}</td><td>${t.side}</td><td>$${t.capital}</td><td>${t.entry_price}</td><td style="color:#00ff88">${t.current_price}</td><td class="${cls}">${t.profit_usd>=0?'+':''}$${t.profit_usd}</td><td class="${cls}">${t.profit_pct}%</td></tr>`;
+  html+=`<tr><td><span class="en">${t.coin}</span></td><td><span class="en">${t.side}</span></td><td><span class="en">$${t.capital}</span></td><td><span class="en">${t.entry_price.toFixed(2)}</span></td><td style="color:#00ff88"><span class="en">${t.current_price.toFixed(2)}</span></td><td class="${cls} en">${t.profit_usd>=0?'+':''}$${t.profit_usd.toFixed(2)}</td><td class="${cls} en">${t.profit_pct}%</td></tr>`;
  }); document.getElementById('tradesBody').innerHTML=html;
 })
 }
@@ -125,7 +128,7 @@ setInterval(load,2000);load();
 """
 
 @app.route("/")
-def home(): return render_template_string(HTML)
+def home(): return render_template_string(HTML, CAPITAL=bot_state["capital_per_trade"])
 
 @app.route("/api/data")
 def data():
@@ -136,7 +139,7 @@ def data():
 def set_capital():
     cap = request.json.get("capital", 200)
     bot_state["capital_per_trade"] = float(cap)
-    return jsonify({"ok": True, "new_capital": cap})
+    return jsonify({"ok": True})
 
 @app.route("/api/toggle", methods=["POST"])
 def toggle():
@@ -148,7 +151,6 @@ def close_all():
     floating = sum(t["profit_usd"] for t in bot_state["trades"])
     bot_state["realized_profit"] += floating
     bot_state["trades"] = []
-    # افتح صفقات جديدة برأس المال الجديد
     real = get_real_prices()
     for coin in COINS[:2]:
         if coin in real:
