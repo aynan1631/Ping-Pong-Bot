@@ -1,13 +1,19 @@
+import os
 import ccxt
 import pandas as pd
 import time
 from datetime import datetime
 
-API_KEY="oe0MypGbXvTtuqS4OkjFy4ETA4PZarl7DuK7YW69xuEkzgzb7ItQ75fiL8NhoWxW"
-API_SECRET="jVg5N9r6JmCiK9cDnNQHVhPE2XwJCJAMnp0LHcMdPspxbF54aBh8RcwzBp0YMhR4"
+# يقرأ من Railway Variables
+API_KEY = os.getenv("API_KEY")
+API_SECRET = os.getenv("API_SECRET")
+DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK")
+
+if not API_KEY or not API_SECRET:
+    raise Exception("API keys not found in Railway Variables")
+
 SYMBOLS = ["BTCUSDT","ETHUSDT","BNBUSDT","SOLUSDT","XRPUSDT","DOGEUSDT","ADAUSDT","AVAXUSDT","LINKUSDT","DOTUSDT"]
 TIMEFRAME = '1h'
-STOP_LOSS_PCT = 0.02
 LEVERAGE = 10
 
 exchange = ccxt.binance({
@@ -37,32 +43,32 @@ def get_signal():
 
 def manage_positions(signal):
     balance = exchange.fetch_balance()
+    free = balance['USDT']['free']
+    positions = exchange.fetch_positions()
     for sym in SYMBOLS:
         try:
             df = get_ohlcv(sym)
             price = df['close'].iloc[-1]
-            positions = exchange.fetch_positions(sym)
-            has_pos = False
+            # اغلاق عكس الاتجاه
             for p in positions:
-                if float(p['contracts'])>0:
-                    has_pos=True
+                if sym in p['symbol'] and float(p['contracts'])>0:
                     if (p['side']=='long' and signal=="SHORT") or (p['side']=='short' and signal=="LONG"):
                         exchange.create_order(sym, 'market', 'close', abs(float(p['contracts'])))
                         time.sleep(0.5)
-                        has_pos=False
+            # فتح جديد
+            has_pos = any(sym in p['symbol'] and float(p['contracts'])>0 for p in exchange.fetch_positions())
             if signal and not has_pos:
                 side = 'buy' if signal=="LONG" else 'sell'
-                free = balance['USDT']['free']
                 amount = (free * 0.09 * LEVERAGE) / price
                 exchange.create_market_order(sym, side, amount)
                 sl_price = price * (0.98 if signal=="LONG" else 1.02)
                 sl_side = 'sell' if signal=="LONG" else 'buy'
                 exchange.create_order(sym, 'STOP_MARKET', sl_side, amount, None, {'stopPrice': sl_price})
-                print(f"Opened {signal} {sym}")
+                print(f"Opened {signal} {sym} @ {price}")
         except Exception as e:
             print(f"Error {sym}: {e}")
 
-print("V27 SIMPLE 200 Started")
+print("V27 SIMPLE 200 - Started - EMA200 Only")
 while True:
     try:
         signal, close_price, ema200 = get_signal()
@@ -72,5 +78,5 @@ while True:
             manage_positions(signal)
         time.sleep(60)
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Loop Error: {e}")
         time.sleep(10)
