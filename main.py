@@ -1,92 +1,137 @@
-import os, random, threading, time, requests
-from flask import Flask, render_template_string
-from datetime import datetime
+from flask import Flask, render_template_string, jsonify, request
+import random, time, threading, requests, os
 
 app = Flask(__name__)
-WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK", "").strip()
 
-DATA = {
-    "total_balance": 1000.0,
-    "realized": 12.5,
-    "floating": 19.65,
-    "positions": {"BTCUSDT": {"qty": 0.002, "pnl": 12.5}},
-    "btc_status": "صاعد 🟢"
+# --- إعداداتك ---
+DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK", "حط رابط الديسكورد هنا")
+BALANCE_REAL = 1000.0
+
+# --- حالة البوت ---
+bot_state = {
+    "is_running": True,
+    "trades": [], # قائمة الصفقات
+    "realized_profit": 0.0
 }
 
-def send_discord(text):
-    if not WEBHOOK_URL: return
-    try: requests.post(WEBHOOK_URL, json={"content": text, "username": "V8 PRO Bot"}, timeout=10)
-    except: pass
+COINS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT"]
 
 def bot_loop():
-    coins = ["DASHUSDT","BTCUSDT","ETHUSDT","SOLUSDT","BNBUSDT","XRPUSDT"]
     while True:
-        try:
-            time.sleep(20)
-            coin = random.choice(coins)
-            profit = random.randint(60, 220)
-            rsi = random.randint(30, 70)
-            vol = random.randint(80, 160)
-            DATA["floating"] = round(DATA["floating"] + random.uniform(-1.5, 3.5), 2)
-            DATA["positions"][coin] = {"qty": round(random.uniform(0.01,1),4), "pnl": round(random.uniform(2,15),2)}
+        if bot_state["is_running"]:
+            # محاكاة صفقة جديدة
+            if len(bot_state["trades"]) < 5 and random.random() > 0.7:
+                coin = random.choice(COINS)
+                entry = random.uniform(100, 70000)
+                trade = {
+                    "coin": coin,
+                    "entry_price": round(entry, 2),
+                    "current_price": round(entry, 2),
+                    "side": random.choice(["LONG", "SHORT"]),
+                    "profit_usd": 0.0,
+                    "profit_pct": 0.0
+                }
+                bot_state["trades"].append(trade)
+                # ارسال ديسكورد
+                try:
+                    requests.post(DISCORD_WEBHOOK, json={"content": f"🚀 فتح صفقة {trade['side']} {coin} دخول {trade['entry_price']}"})
+                except: pass
 
-            msg = f"🚀 **LONG صاروخ {coin}**\nM الربح {profit}% | الحجم {vol}M\nEMA50-EMA100 ✅ RSI {rsi}\nBTC 79662 100 فلح ✅\nاللوحة: robust-simplicity-production.up.railway.app"
-            send_discord(msg)
-        except: time.sleep(10)
+            # تحديث الاسعار الحالية
+            for t in bot_state["trades"]:
+                change = random.uniform(-1.5, 1.5)
+                t["current_price"] = round(t["current_price"] * (1 + change/100), 2)
+                if t["side"] == "LONG":
+                    t["profit_pct"] = round(((t["current_price"] - t["entry_price"]) / t["entry_price"]) * 100, 2)
+                else:
+                    t["profit_pct"] = round(((t["entry_price"] - t["current_price"]) / t["entry_price"]) * 100, 2)
+                t["profit_usd"] = round(t["profit_pct"] * 2, 2) # ربح وهمي
+
+        time.sleep(3)
 
 threading.Thread(target=bot_loop, daemon=True).start()
 
 HTML = """
 <!DOCTYPE html>
-<html dir="rtl" lang="ar"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="refresh" content="5">
-<title>V8 PRO + Discord</title>
-<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@700;800&display=swap" rel="stylesheet">
+<html dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>V9 PRO - لوحة الريس</title>
 <style>
-*{font-family:'Tajawal',sans-serif;box-sizing:border-box}
-body{margin:0;background:#070b14;color:#fff}
-.header{background:#0f172a;padding:16px 22px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #1e293b}
-.logo{font-weight:800;font-size:22px;background:linear-gradient(90deg,#22c55e,#3b82f6);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
-.badge{background:#16a34a;padding:4px 12px;border-radius:20px;font-size:13px}
-.container{padding:22px;max-width:1200px;margin:auto;display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}
-.card{background:linear-gradient(145deg,#151c2f,#1a233e);border:1px solid #243049;border-radius:18px;padding:20px;box-shadow:0 10px 30px rgba(0,0,0,.3)}
-.value{font-size:30px;font-weight:800;margin-top:6px}
-.green{color:#22c55e}.blue{color:#38bdf8}
-.status{grid-column:1/-1;background:#11192e;border-radius:16px;padding:16px;border:1px solid #243049;display:flex;justify-content:space-between}
-.live{width:10px;height:10px;background:#22c55e;border-radius:50%;display:inline-block;animation:pulse 1.5s infinite}
-@keyframes pulse{0%{opacity:1}50%{opacity:.3}100%{opacity:1}}
-table{width:100%;border-collapse:collapse;margin-top:10px}
-th{color:#64748b;text-align:right;padding:8px;border-bottom:1px solid #243049}
-td{padding:10px 8px;border-bottom:1px solid #1e293b}
-</style></head>
+body{background:#0a0a0a;color:#fff;font-family:Tahoma;padding:20px}
+.card{background:#151515;border:1px solid #333;border-radius:15px;padding:20px;margin-bottom:20px}
+table{width:100%;border-collapse:collapse}
+th,td{padding:12px;border-bottom:1px solid #222;text-align:center}
+th{color:#888}
+.profit-pos{color:#00ff88} .profit-neg{color:#ff4444}
+button{padding:12px 25px;border-radius:10px;border:none;font-weight:bold;cursor:pointer;margin:5px}
+.btn-on{background:#00ff88;color:#000} .btn-off{background:#ff4444;color:#fff} .btn-close{background:#fff;color:#000;width:100%;margin-top:15px}
+</style>
+</head>
 <body>
-<div class="header">
-<div class="logo">V8 PRO • DEMO + Discord</div>
-<div class="badge"><span class="live"></span> {{data.btc_status}} | ONLINE</div>
+<div class="card">
+<h2>🤖 حالة البوت: <span id="status"></span></h2>
+<button id="toggleBtn" onclick="toggleBot()"></button>
+<div style="margin-top:15px">
+الرصيد: ${BALANCE} | العائم: $<span id="floating">0</span> | المحقق: $<span id="realized">0</span>
 </div>
-<div class="container">
-<div class="card"><small>💰 الرصيد الكلي</small><div class="value">${{data.total_balance}}</div><small>{{now}}</small></div>
-<div class="card"><small>📈 الربح المحقق</small><div class="value green">+${{data.realized}}</div><small>Realized</small></div>
-<div class="card"><small>💹 الربح العائم</small><div class="value blue">${{data.floating}}</div><small>يتحرك كل 5 ثواني</small></div>
-<div class="status">
-<span>🔗 حالة الديسكورد: <b style="color:#22c55e">{{'مربوط ✅ يرسل كل 20 ثانية' if webhook else 'مو مربوط ❌'}}</b></span>
-<span>🌐 robust-simplicity-production.up.railway.app</span>
+<button class="btn-close" onclick="closeAll()">🔒 قفل وإغلاق التداول وتحويل الرصيد العائم إلى محقق</button>
 </div>
-<div class="card" style="grid-column:1/-1">
-<h3 style="margin:0 0 12px 0">📊 الصفقات النشطة</h3>
-<table><tr><th>العملة</th><th>الكمية</th><th>PnL</th></tr>
-{% for coin, info in data.positions.items() %}
-<tr><td><b>{{coin}}</b></td><td>{{info.qty}}</td><td class="green">{{info.pnl}}$</td></tr>
-{% endfor %}
+
+<div class="card">
+<h3>📊 الصفقات الحية</h3>
+<table>
+<thead><tr><th>العملة</th><th>النوع</th><th>سعر الدخول</th><th>السعر الحالي</th><th>ربح $</th><th>ربح %</th></tr></thead>
+<tbody id="tradesBody"></tbody>
 </table>
 </div>
-</div>
-</body></html>
+
+<script>
+function load(){
+fetch('/api/data').then(r=>r.json()).then(d=>{
+ document.getElementById('status').innerText = d.is_running ? '🟢 شغال' : '🔴 متوقف';
+ document.getElementById('toggleBtn').innerText = d.is_running ? 'إيقاف البوت' : 'تشغيل البوت';
+ document.getElementById('toggleBtn').className = d.is_running ? 'btn-off' : 'btn-on';
+ document.getElementById('floating').innerText = d.floating.toFixed(2);
+ document.getElementById('realized').innerText = d.realized_profit.toFixed(2);
+ let html='';
+ d.trades.forEach(t=>{
+   let cls = t.profit_usd >=0 ? 'profit-pos' : 'profit-neg';
+   html+=`<tr><td>${t.coin}</td><td>${t.side}</td><td>${t.entry_price}</td><td>${t.current_price}</td><td class="${cls}">${t.profit_usd}</td><td class="${cls}">${t.profit_pct}%</td></tr>`;
+ });
+ document.getElementById('tradesBody').innerHTML=html;
+})
+}
+function toggleBot(){ fetch('/api/toggle', {method:'POST'}).then(()=>load()) }
+function closeAll(){ if(confirm('متأكد تبي تقفل كل الصفقات وتحول العائم لمحقق؟')){ fetch('/api/close_all', {method:'POST'}).then(()=>load()) } }
+setInterval(load, 2000); load();
+</script>
+</body>
+</html>
 """
 
-@app.route('/')
-def home():
-    return render_template_string(HTML, data=DATA, webhook=bool(WEBHOOK_URL), now=datetime.now().strftime("%H:%M:%S"))
+@app.route("/")
+def home(): return render_template_string(HTML, BALANCE=BALANCE_REAL)
+
+@app.route("/api/data")
+def data():
+    floating = sum(t["profit_usd"] for t in bot_state["trades"])
+    return jsonify({"is_running": bot_state["is_running"], "trades": bot_state["trades"], "floating": floating, "realized_profit": bot_state["realized_profit"]})
+
+@app.route("/api/toggle", methods=["POST"])
+def toggle():
+    bot_state["is_running"] = not bot_state["is_running"]
+    return jsonify({"ok": True})
+
+@app.route("/api/close_all", methods=["POST"])
+def close_all():
+    floating = sum(t["profit_usd"] for t in bot_state["trades"])
+    bot_state["realized_profit"] += floating
+    bot_state["trades"] = []
+    try:
+        requests.post(DISCORD_WEBHOOK, json={"content": f"🔒 تم قفل التداول! تم تحويل ${floating:.2f} من عائم إلى محقق. الرصيد المحقق الآن ${bot_state['realized_profit']:.2f}"})
+    except: pass
+    return jsonify({"ok": True})
 
 if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=int(os.environ.get("PORT",8080)))
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 8080)))
