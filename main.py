@@ -32,65 +32,69 @@ threading.Thread(target=bot_loop, daemon=True).start()
 
 HTML = """
 <!DOCTYPE html>
-<html dir="rtl" lang="ar">
+<html lang="en" dir="ltr">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>V9.7 BIG</title>
-<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@900&family=Roboto:wght@900&display=swap" rel="stylesheet">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>V9.8 FIX</title>
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@900&display=swap" rel="stylesheet">
 <style>
-/* فرض أرقام انجليزية */
-*{box-sizing:border-box}
-body{background:#050507;color:#fff;font-family:'Cairo',sans-serif;margin:0;padding:15px;-webkit-text-size-adjust:100%}
-.en{font-family:'Roboto','Cairo',sans-serif!important;direction:ltr;display:inline-block;unicode-bidi:plaintext;font-variant-numeric:lining-nums}
-.header{background:#121216;padding:24px 32px;border-radius:22px;display:flex;justify-content:space-between;align-items:center;border:1px solid #222;margin-bottom:22px}
-.header h1{font-size:34px;margin:0;font-weight:900}
+html{lang:en}
+body{background:#050507;color:#fff;font-family:'Roboto',Arial,sans-serif!important;margin:0;padding:15px;direction:ltr}
+* {font-family:'Roboto',Arial,sans-serif!important}
+.ar-label{font-family:'Cairo',sans-serif!important;direction:rtl}
+.header{background:#121216;padding:26px 32px;border-radius:22px;display:flex;justify-content:space-between;align-items:center;border:1px solid #222;margin-bottom:22px}
+.header h1{font-size:38px!important;margin:0;font-weight:900}
 .grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:22px;margin-bottom:22px}
-.card{background:#111116;border:4px solid #222;border-radius:30px;padding:40px 25px;text-align:center}
-.card.icon{font-size:58px}
-.card.label{font-size:22px;color:#888;font-weight:900;margin:12px 0}
-.card.money{font-size:62px;font-weight:900;line-height:1.1}
-.control-panel{background:#1a1a22;border:3px solid #ffbe0b;border-radius:30px;padding:32px;margin-bottom:22px}
-.control-panel h2{font-size:30px;margin:0 0 20px 0}
+.card{background:#111116;border:5px solid #222;border-radius:32px;padding:45px 25px;text-align:center}
+.card.icon{font-size:64px}
+.card.label{font-size:26px!important;color:#888;font-weight:900;margin:14px 0}
+.card.money{font-size:68px!important;font-weight:900;line-height:1.1;letter-spacing:1px}
+.control-panel{background:#1a1a22;border:4px solid #ffbe0b;border-radius:32px;padding:36px;margin-bottom:22px}
+.control-panel h2{font-size:34px!important;margin:0 0 22px 0}
 .input-group{display:flex;gap:18px;align-items:center;flex-wrap:wrap}
-.input-group input{padding:22px 28px;border-radius:18px;border:3px solid #333;background:#050507;color:#fff;font-family:'Roboto',sans-serif;font-size:32px;font-weight:900;width:220px;text-align:center;direction:ltr}
-.btn{padding:20px 30px;border-radius:18px;border:none;font-family:'Cairo';font-weight:900;font-size:22px;cursor:pointer}
-.btn-save{background:#ffbe0b;color:#000;font-size:24px}.btn-stop{background:#ff1a1a;color:#fff;width:260px;font-size:24px}.btn-start{background:#00ff88;color:#000;width:260px;font-size:24px}
-.btn-lock{background:#fff;color:#000;width:100%;font-size:28px;padding:26px;margin-top:18px}
-.table-wrap{background:#111116;border:2px solid #222;border-radius:30px;padding:32px}
-table{width:100%;border-collapse:collapse} th{color:#777;font-size:20px;padding:20px 10px} td{padding:28px 14px;font-size:26px;font-weight:900;border-top:3px solid #1e1e24;text-align:center}
+.input-box{padding:24px 32px;border-radius:20px;border:4px solid #333;background:#000;color:#fff;font-size:38px!important;font-weight:900;width:240px;text-align:center;direction:ltr}
+.btn{padding:22px 32px;border-radius:20px;border:none;font-family:'Roboto';font-weight:900;font-size:24px!important;cursor:pointer}
+.btn-save{background:#ffbe0b;color:#000;font-size:26px!important}.btn-stop{background:#ff1a1a;color:#fff;width:300px;font-size:28px!important}.btn-start{background:#00ff88;color:#000;width:300px;font-size:28px!important}
+.btn-lock{background:#fff;color:#000;width:100%;font-size:32px!important;padding:28px;margin-top:18px}
+.table-wrap{background:#111116;border:2px solid #222;border-radius:32px;padding:36px}
+table{width:100%;border-collapse:collapse} th{color:#777;font-size:22px!important;padding:22px 10px} td{padding:32px 14px;font-size:30px!important;font-weight:900;border-top:3px solid #1e1e24;text-align:center}
 .pos{color:#00ff88}.neg{color:#ff3b3b}
 </style>
 </head>
 <body>
-<div class="header"><h1>👑 لوحة الريس <span class="en">V9.7 LIVE</span></h1><div id="status" style="font-size:26px;font-weight:900;background:#00ff88;color:#000;padding:12px 26px;border-radius:50px">🟢 شغال</div></div>
+<div class="header"><h1>RAIS V9.8 LIVE FIX</h1><div id="status" style="font-size:28px;font-weight:900;background:#00ff88;color:#000;padding:14px 30px;border-radius:50px">RUNNING</div></div>
 
 <div class="grid">
-<div class="card" style="border-color:#00ff88"><div class="icon">💰</div><div class="label">الرصيد الأساسي</div><div class="money en" style="color:#00ff88">$1000</div></div>
-<div class="card" id="floatingCard" style="border-color:#ffbe0b"><div class="icon">📈</div><div class="label">الرصيد العائم</div><div class="money en" id="floatingMoney">$0.00</div></div>
-<div class="card" style="border-color:#00d4ff"><div class="icon">🏦</div><div class="label">الربح المحقق</div><div class="money en" style="color:#00d4ff">$<span id="realized" class="en">0</span></div></div>
+<div class="card" style="border-color:#00ff88"><div class="icon">💰</div><div class="label ar-label">الرصيد الأساسي</div><div class="money" style="color:#00ff88">$1000</div></div>
+<div class="card" id="floatingCard" style="border-color:#ffbe0b"><div class="icon">📈</div><div class="label ar-label">الرصيد العائم</div><div class="money" id="floatingMoney">$0.00</div></div>
+<div class="card" style="border-color:#00d4ff"><div class="icon">🏦</div><div class="label ar-label">الربح المحقق</div><div class="money" style="color:#00d4ff">$<span id="realized">0</span></div></div>
 </div>
 
 <div class="control-panel">
-<h2>⚙️ التحكم برأس المال</h2>
+<h2><span class="ar-label">التحكم برأس المال</span> - CAPITAL CONTROL</h2>
 <div class="input-group">
-<span style="font-size:24px;font-weight:900">رأس مال كل صفقة:</span>
-<input type="number" id="capitalInput" value="200" min="10" step="10">
-<span style="font-size:28px;font-weight:900">$</span>
-<button class="btn btn-save" onclick="saveCapital()">💾 حفظ وتطبيق</button>
+<span style="font-size:26px;font-weight:900" class="ar-label">رأس مال كل صفقة:</span>
+<input type="text" inputmode="numeric" id="capitalInput" class="input-box" value="200">
+<span style="font-size:32px;font-weight:900">$</span>
+<button class="btn btn-save" onclick="saveCapital()">SAVE APPLY</button>
 </div>
-<div style="margin-top:18px;display:flex;gap:12px">
-<button class="btn" style="background:#222;color:#fff;font-size:22px" onclick="setCap(50)"><span class="en">50$</span></button>
-<button class="btn" style="background:#222;color:#fff;font-size:22px" onclick="setCap(100)"><span class="en">100$</span></button>
-<button class="btn" style="background:#ffbe0b;color:#000;font-size:22px" onclick="setCap(200)"><span class="en">200$</span></button>
-<button class="btn" style="background:#222;color:#fff;font-size:22px" onclick="setCap(500)"><span class="en">500$</span></button>
+<div style="margin-top:20px;display:flex;gap:14px">
+<button class="btn" style="background:#222;color:#fff" onclick="setCap(50)">50$</button>
+<button class="btn" style="background:#222;color:#fff" onclick="setCap(100)">100$</button>
+<button class="btn" style="background:#ffbe0b;color:#000" onclick="setCap(200)">200$</button>
+<button class="btn" style="background:#222;color:#fff" onclick="setCap(500)">500$</button>
 </div>
 </div>
 
 <div class="table-wrap">
-<button id="toggleBtn" class="btn btn-stop" onclick="toggleBot()">⏸️ إيقاف البوت</button>
-<button class="btn btn-lock" onclick="closeAll()">🔒 قفل الصفقات وتحويل العائم إلى محقق</button>
-<h2 style="font-size:34px;margin:40px 0 18px 0">💎 الصفقات الحية - كل صفقة <span class="en">$${CAPITAL}$$</span></h2>
-<table><thead><tr><th>العملة</th><th>النوع</th><th>رأس المال</th><th>دخول</th><th>حالي LIVE</th><th>ربح $</th><th>%</th></tr></thead><tbody id="tradesBody"></tbody></table>
+<button id="toggleBtn" class="btn btn-stop" onclick="toggleBot()">STOP BOT</button>
+<button class="btn btn-lock" onclick="closeAll()">LOCK & COLLECT PROFIT</button>
+<h2 style="font-size:36px;margin:40px 0 18px 0">LIVE TRADES - CAPITAL $<span id="capDisplay">200</span> EACH</h2>
+<table><thead><tr><th>COIN</th><th>TYPE</th><th>CAPITAL</th><th>ENTRY</th><th>LIVE PRICE</th><th>PROFIT $</th><th>%</th></tr></thead><tbody id="tradesBody"></tbody></table>
 </div>
 
 <script>
@@ -98,29 +102,31 @@ function setCap(v){document.getElementById('capitalInput').value=v; saveCapital(
 function saveCapital(){
   let v=document.getElementById('capitalInput').value;
   fetch('/api/set_capital',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({capital:parseFloat(v)})}).then(r=>r.json()).then(d=>{
-    alert('تم ✅ صار $'+v);load();
+    document.getElementById('capDisplay').innerText=v;
+    load();
   });
 }
 function load(){
-fetch('/api/data').then(r=>r.json()).then(d=>{
+fetch('/api/data?t='+Date.now()).then(r=>r.json()).then(d=>{
  document.getElementById('capitalInput').value=d.capital_per_trade;
- document.getElementById('status').innerText=d.is_running?'🟢 شغال':'🔴 متوقف';
+ document.getElementById('capDisplay').innerText=d.capital_per_trade;
+ document.getElementById('status').innerText=d.is_running?'RUNNING':'STOPPED';
  document.getElementById('realized').innerText=d.realized_profit.toFixed(2);
  let floatingEl=document.getElementById('floatingMoney');
  let floatingCard=document.getElementById('floatingCard');
  let val=d.floating;
  floatingEl.innerText=(val>=0? '$'+val.toFixed(2) : '-$'+Math.abs(val).toFixed(2));
- if(val>0){floatingEl.style.color='#00ff88';floatingCard.style.borderColor='#00ff88';floatingCard.style.boxShadow='0 0 30px rgba(0,255,136,0.4)'}
- else if(val<0){floatingEl.style.color='#ff3b3b';floatingCard.style.borderColor='#ff3b3b';floatingCard.style.boxShadow='0 0 30px rgba(255,59,59,0.4)'}
+ if(val>0){floatingEl.style.color='#00ff88';floatingCard.style.borderColor='#00ff88';floatingCard.style.boxShadow='0 0 35px rgba(0,255,136,0.5)'}
+ else if(val<0){floatingEl.style.color='#ff3b3b';floatingCard.style.borderColor='#ff3b3b';floatingCard.style.boxShadow='0 0 35px rgba(255,59,59,0.5)'}
  else{floatingEl.style.color='#ffbe0b';floatingCard.style.borderColor='#ffbe0b';floatingCard.style.boxShadow='none'}
  let html=''; d.trades.forEach(t=>{
   let cls=t.profit_usd>=0?'pos':'neg';
-  html+=`<tr><td><span class="en">${t.coin}</span></td><td><span class="en">${t.side}</span></td><td><span class="en">$${t.capital}</span></td><td><span class="en">${t.entry_price.toFixed(2)}</span></td><td style="color:#00ff88"><span class="en">${t.current_price.toFixed(2)}</span></td><td class="${cls} en">${t.profit_usd>=0?'+':''}$${t.profit_usd.toFixed(2)}</td><td class="${cls} en">${t.profit_pct}%</td></tr>`;
+  html+=`<tr><td>${t.coin}</td><td>${t.side}</td><td>$${t.capital}</td><td>${t.entry_price.toFixed(2)}</td><td style="color:#00ff88">${t.current_price.toFixed(2)}</td><td class="${cls}">${t.profit_usd>=0?'+':''}$${t.profit_usd.toFixed(2)}</td><td class="${cls}">${t.profit_pct}%</td></tr>`;
  }); document.getElementById('tradesBody').innerHTML=html;
 })
 }
 function toggleBot(){fetch('/api/toggle',{method:'POST'}).then(()=>load())}
-function closeAll(){if(confirm('تقفل الكل؟')){fetch('/api/close_all',{method:'POST'}).then(()=>load())}}
+function closeAll(){if(confirm('Close all?')){fetch('/api/close_all',{method:'POST'}).then(()=>load())}}
 setInterval(load,2000);load();
 </script>
 </body>
@@ -128,7 +134,7 @@ setInterval(load,2000);load();
 """
 
 @app.route("/")
-def home(): return render_template_string(HTML, CAPITAL=bot_state["capital_per_trade"])
+def home(): return render_template_string(HTML)
 
 @app.route("/api/data")
 def data():
