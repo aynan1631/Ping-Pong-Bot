@@ -1,7 +1,7 @@
 from flask import Flask, render_template_string, jsonify, request, make_response
 import os, threading, requests, time
 
-app = Flask(__name _)
+app = Flask(__name_)
 MAX_TRADES = 10
 bot_state = {"realized": 0.0, "base_capital": 5000, "trades": [], "is_running": True, "btc_trend": "WAITING EMA200", "btc_change": 0, "last_signal": None}
 
