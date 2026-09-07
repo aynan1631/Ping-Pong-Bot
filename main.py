@@ -3,8 +3,8 @@ import pandas as pd
 import time
 from datetime import datetime
 
-API_KEY = "حط مفتاحك هنا"
-API_SECRET = "حط سرك هنا"
+API_KEY="oe0MypGbXvTtuqS4OkjFy4ETA4PZarl7DuK7YW69xuEkzgzb7ItQ75fiL8NhoWxW"
+API_SECRET="jVg5N9r6JmCiK9cDnNQHVhPE2XwJCJAMnp0LHcMdPspxbF54aBh8RcwzBp0YMhR4"
 SYMBOLS = ["BTCUSDT","ETHUSDT","BNBUSDT","SOLUSDT","XRPUSDT","DOGEUSDT","ADAUSDT","AVAXUSDT","LINKUSDT","DOTUSDT"]
 TIMEFRAME = '1h'
 STOP_LOSS_PCT = 0.02
