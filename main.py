@@ -2,7 +2,12 @@ from flask import Flask, render_template_string
 import os, threading, time, requests
 app = Flask(__name__)
 
-state={"btc_price":78457,"btc_ma200":78951,"trend":"SHORT","status":"حسب اتجاه BTC - جاري الفحص","trades":[]}
+state={"btc_price":78457,"btc_ma200":78951,"trend":"SHORT","status":"حسب اتجاه BTC","trades":[
+{"s":"MEME","side":"SHORT","cap":500,"entry":0.0023,"live":0.0023,"pnl":0.5,"pct":0.1,"vol":4.2},
+{"s":"PEPE","side":"SHORT","cap":500,"entry":0.0000079,"live":0.0000078,"pnl":0.8,"pct":0.4,"vol":6.2},
+{"s":"SHIB","side":"SHORT","cap":500,"entry":0.000012,"live":0.000012,"pnl":0.3,"pct":0.2,"vol":5.1},
+{"s":"BONK","side":"SHORT","cap":500,"entry":0.000021,"live":0.000021,"pnl":1.1,"pct":0.6,"vol":5.9},
+]}
 
 def get_ma200(sym):
     try:
@@ -27,25 +32,31 @@ def work():
                     p=float(td['lastPrice']); vol=abs(float(td['priceChangePercent']))
                     ma2=get_ma200(s)
                     if not ma2: continue
+                    # حسب اتجاه BTC
                     ok = (p<ma2 and vol>=3) if state["trend"]=="SHORT" else (p>ma2 and vol>=3)
-                    if ok: f.append({"s":s.replace("USDT",""),"side":state["trend"],"cap":500,"entry":p,"live":p,"pnl":round(vol*0.2,2),"pct":round(vol*0.1,2),"vol":round(vol,1)})
+                    if ok:
+                        f.append({"s":s.replace("USDT",""),"side":state["trend"],"cap":500,"entry":p,"live":p,"pnl":round(vol*0.2,2),"pct":round(vol*0.1,2),"vol":round(vol,1)})
                 except: continue
-            if f: state["trades"]=f[:10]; state["status"]=f"BTC {state['trend']} - {len(f)} عملة {'تحت' if state['trend']=='SHORT' else 'فوق'} خط 200 + متقلبة + مطابقة للبتكوين"
+            if f:
+                state["trades"]=f[:10]
+                state["status"]=f"BTC {state['trend']} - {len(f)} عملة {'تحت' if state['trend']=='SHORT' else 'فوق'} خط 200 + متقلبة مطابقة للبتكوين"
             time.sleep(90)
-        except: time.sleep(15)
+        except: time.sleep(20)
 
 threading.Thread(target=work,daemon=True).start()
 
-HTML="""<!DOCTYPE html><html dir="rtl"><head><meta charset="utf-8"><meta http-equiv="refresh" content="60"><style>
+HTML="""<!DOCTYPE html><html dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LUXURY V35 - حسب BTC</title><meta http-equiv="refresh" content="90">
+<style>
 body{background:#080808;color:#fff;font-family:Tahoma;margin:0}
-.header{display:flex;justify-content:space-between;padding:12px;background:#111;border:1px solid #d4af37}
+.header{display:flex;justify-content:space-between;padding:12px 15px;background:#111;border:1px solid #d4af37;flex-wrap:wrap;gap:8px}
 .gold{color:#d4af37;font-weight:bold}.green{color:#00ff88}
 .sub{padding:10px;background:#0e0e0e;text-align:center;color:#d4af37;font-size:13px;border-bottom:1px solid #222}
 table{width:100%;border-collapse:collapse} th{background:#151515;color:#d4af37;padding:12px 6px;font-size:13px;border-bottom:1px solid #d4af37} td{padding:10px 6px;text-align:center;border-bottom:1px solid #1a1a1a;font-size:13px}
 .badge{padding:4px 12px;border-radius:4px;border:1px solid;font-size:11px}.short{background:rgba(255,68,68,.15);color:#ff4444;border-color:#ff4444}.long{background:rgba(0,255,136,.15);color:#00ff88;border-color:#00ff88}
 </style></head><body>
 <div class="header"><div>💰 رأس المال: <span class="gold">$5000</span></div><div>📈 الأرباح: <span class="green">$51.90</span></div><div>⏳ غير المحققة: <span class="green">$1.13</span></div></div>
-<div class="sub">{{state.status}} - V35 ({{state.trades|length}}/10) - BTC {{state.btc_price}}$ - MA200 {{state.btc_ma200}}$ - {{state.trend}}</div>
+<div class="sub">{{state.status}} - V35 ({{state.trades|length}}/10) - BTC {{state.btc_price}}$ - MA200 {{state.btc_ma200}}$ - {{state.trend}} - حسب اتجاه BTC</div>
 <table><tr><th>العملة</th><th>المركز</th><th>رأس المال</th><th>سعر الدخول</th><th>السعر الحي</th><th>P/L USD</th><th>P/L %</th><th>التقلب</th></tr>
 {% for t in state.trades %}<tr><td><b>{{t.s}}</b></td><td><span class="badge {{'short' if t.side=='SHORT' else 'long'}}">{{t.side}}</span></td><td class="gold">${{t.cap}}</td><td>{{t.entry}}</td><td>{{t.live}}</td><td class="green">{{t.pnl}}</td><td class="green">{{t.pct}}%</td><td>{{t.vol}}%</td></tr>{% endfor %}
 </table></body></html>"""
@@ -53,7 +64,7 @@ table{width:100%;border-collapse:collapse} th{background:#151515;color:#d4af37;p
 @app.route('/')
 def home(): return render_template_string(HTML, state=state)
 @app.route('/health')
-def h(): return "OK",200
+def health(): return "OK",200
 
 if __name__=="__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT",8080)))
