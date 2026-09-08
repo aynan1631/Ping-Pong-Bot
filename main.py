@@ -1,22 +1,42 @@
-from flask import Flask, render_template_string, request, jsonify
+from flask import Flask, render_template_string, request, jsonify, make_response
 import os, random, threading, time
 app = Flask(__name__)
 
 BASE = [
-    ("BONK",0.00002050),("ASTER",0.7517),("SAHARA",0.00973),
-    ("PEPE",0.00000790),("SHIB",0.00001190),("FLOKI",0.000130),
-    ("WIF",1.39),("BOME",0.00851),("DOGE",0.1218),("POPCAT",0.321)
+    ("BONK",0.00002050),
+    ("ASTER",0.7517),
+    ("SAHARA",0.00973),
+    ("PEPE",0.00000790),
+    ("SHIB",0.00001190),
+    ("FLOKI",0.000130),
+    ("WIF",1.39),
+    ("BOME",0.00851),
+    ("DOGE",0.1218),
+    ("POPCAT",0.321)
 ]
 
-def make_trades(per_coin):
+def make_trades(pc):
     out=[]
     for n,p in BASE:
-        live = p * random.uniform(0.985,1.015)
-        pct = (p-live)/p*100
-        out.append({"s":n,"cap":per_coin,"entry":p,"live":live,"pnl":round(per_coin*pct/100,2),"pct":round(pct,2),"vol":round(random.uniform(3.5,6.7),1)})
+        live=p*random.uniform(0.985,1.015)
+        pct=(p-live)/p*100
+        out.append({
+            "s":n,
+            "cap":pc,
+            "entry":p,
+            "live":live,
+            "pnl":round(pc*pct/100,2),
+            "pct":round(pct,2)
+        })
     return out
 
-state={"capital":5000,"per_coin":500,"realized":52.21,"btc":78376,"target":102.21,"trades":make_trades(500)}
+state={
+    "capital":5000,
+    "per_coin":500,
+    "realized":199.86,
+    "delta":50.0,
+    "trades":make_trades(500)
+}
 state["unrealized"]=round(sum(t["pnl"] for t in state["trades"]),2)
 
 def worker():
@@ -28,115 +48,141 @@ def worker():
             t["pnl"]=round(t["cap"]*t["pct"]/100,2)
             tot+=t["pnl"]
         state["unrealized"]=round(tot,2)
-        if state["realized"]+state["unrealized"] >= state["target"] and state["trades"]:
+        if state["unrealized"]>=state["delta"]:
             state["realized"]=round(state["realized"]+state["unrealized"],2)
             state["trades"]=make_trades(state["per_coin"])
-            state["target"]=round(state["realized"]+50,2)
             state["unrealized"]=round(sum(x["pnl"] for x in state["trades"]),2)
-        time.sleep(2)
+        time.sleep(1)
+
 threading.Thread(target=worker,daemon=True).start()
 
 HTML="""
-<!DOCTYPE html><html dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>V40 PRO</title>
+<!DOCTYPE html><html dir="rtl"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>V40.9</title>
 <style>
-body{background:#0a0c1e;color:#fff;font-family:Tahoma;margin:0;padding:10px}
-.title{text-align:center;color:#ffcc00;font-size:18px;font-weight:bold;margin:10px}
-.cards{display:flex;gap:8px;justify-content:center}
-.card{background:#151833;border:1px solid #2a2d4a;border-radius:12px;padding:10px;min-width:105px;text-align:center}
-.lbl{color:#8a8db5;font-size:10px}.val{font-size:15px;font-weight:bold;margin-top:3px}
-.green{color:#00e676}.red{color:#ff5252}
-.bar{background:#151833;border:1px solid #2a2d4a;border-radius:12px;padding:10px;text-align:center;margin:10px 0}
-.btn{padding:6px 10px;border-radius:7px;border:0;font-weight:bold;margin:2px;font-size:11px;cursor:pointer}
-input{background:#0f1123;color:#fff;border:1px solid #555;border-radius:6px;padding:5px;width:60px;text-align:center}
-table{width:100%;background:#151833;border-radius:12px;border-collapse:collapse}
-th{background:#1e2040;color:#ffeb3b;padding:9px 4px;font-size:11px}
-td{padding:8px 4px;text-align:center;border-top:1px solid #2a2d4a;font-size:11px}
-.badge{background:#ff3d00;color:#fff;padding:3px 8px;border-radius:10px}
+body{background:#0a0c1e;color:#fff;font-family:Tahoma;margin:0;padding:12px}
+.title{text-align:center;color:#ffcc00;font-size:26px;font-weight:900;margin:14px}
+.cards{display:flex;gap:12px;justify-content:center}
+.card{background:#151833;border:2px solid #2a2d4a;border-radius:14px;padding:14px 18px;min-width:130px;text-align:center}
+.lbl{color:#8a8db5;font-size:15px;font-weight:bold}
+.val{font-size:28px;font-weight:900;margin-top:6px}
+.green{color:#00e676!important}
+.red{color:#ff3d57!important}
+.bar{background:#151833;border:2px solid #2a2d4a;border-radius:14px;padding:14px;text-align:center;margin:12px 0}
+.status{color:#00e676;font-size:19px;font-weight:900}
+.controls{display:flex;gap:10px;justify-content:center;align-items:center;margin-top:10px;flex-wrap:wrap}
+.btn{padding:11px 18px;border-radius:10px;border:0;font-weight:900;font-size:17px;cursor:pointer}
+input{background:#0f1123;color:#fff;border:2px solid #777;border-radius:10px;padding:11px;width:100px;text-align:center;font-size:22px;font-weight:900}
+.label-big{font-size:22px;font-weight:900}
+table{width:100%;background:#151833;border-radius:14px;border-collapse:collapse;margin-top:10px}
+th{background:#1e2040;color:#ffeb3b;padding:12px 6px;font-size:17px;font-weight:900}
+td{padding:10px 6px;text-align:center;border-top:1px solid #2a2d4a;font-size:15px;font-weight:900}
+.badge{background:#ff3d00;color:#fff;padding:5px 12px;border-radius:12px;font-size:13px;font-weight:900}
 </style>
 </head><body>
-<div class="title">💎 V40 - فريم الساعة 1H - تحت EMA200</div>
+<div class="title">💎 V40.9 - فريم الساعة 1H - تحت EMA200</div>
 <div class="cards">
-<div class="card"><div class="lbl">رأس المال الكلي</div><div class="val">$<span id="capT">{{s.capital}}</span></div></div>
-<div class="card"><div class="lbl">رأس مال كل عملة</div><div class="val" style="color:#ffeb3b">$<span id="perT">{{s.per_coin}}</span></div></div>
-<div class="card"><div class="lbl">المحققة</div><div class="val green">$<span id="realT">{{s.realized}}</span></div></div>
-<div class="card"><div class="lbl">غير المحققة</div><div class="val green">$<span id="unrealT">{{s.unrealized}}</span></div></div>
+<div class="card"><div class="lbl">رأس المال</div><div class="val" style="color:#fff">$5000</div></div>
+<div class="card"><div class="lbl">المحققة</div><div class="val green" id="realT">{{'%.2f'|format(s.realized)}}$</div></div>
+<div class="card"><div class="lbl">غير المحققة</div><div class="val" id="unrealT">{{'%.2f'|format(s.unrealized)}}$</div></div>
 </div>
 <div class="bar">
-<div style="color:#00e676;font-size:12px">✅ فحص 1H: كل العملات تحت EMA200 - BTC ${{s.btc}} - هدف $<span id="tarT">{{s.target}}</span> - يقفل تلقائي</div>
-<div style="margin-top:8px">
-كلي <input id="c" value="{{s.capital}}"><button class="btn" style="background:#ffeb3b" onclick="fetch('/set_capital?v='+c.value).then(()=>location.reload())">حفظ</button>
-لكل عملة <input id="p" value="{{s.per_coin}}"><button class="btn" style="background:#ff9800" onclick="fetch('/set_percoin?v='+p.value).then(()=>location.reload())">حفظ</button>
-هدف <input id="t" value="{{s.target}}"><button class="btn" style="background:#3d5afe;color:#fff" onclick="fetch('/set_target?v='+t.value).then(()=>location.reload())">حفظ</button>
-<button class="btn" style="background:#ff3d00;color:#fff" onclick="fetch('/close').then(()=>location.reload())">🔒 قفل وتجديد</button>
+<div class="status">✅ هدف $<span id="deltaT">{{s.delta}}</span> - السالب أحمر والموجب أخضر - يقفل عند الربح</div>
+<div class="controls">
+<span class="label-big">رأس المال</span><input id="c" value="{{s.capital}}"><button class="btn" style="background:#ffeb3b" onclick="fetch('/set_capital?v='+c.value).then(()=>location.reload(true))">حفظ</button>
+<span class="label-big">هدف</span><input id="t" value="{{s.delta}}"><button class="btn" style="background:#3d5afe;color:#fff" onclick="fetch('/set_target?v='+t.value).then(()=>location.reload(true))">حفظ</button>
+<button class="btn" style="background:#ff3d00;color:#fff" onclick="fetch('/close').then(()=>location.reload(true))">🔒 قفل وتجديد</button>
 </div>
 </div>
 <table id="tbl">
-<tr><th>العملة</th><th>الجانب</th><th>رأس المال</th><th>دخول</th><th>حالي</th><th>$</th><th>%</th><th>تقلب</th></tr>
+<tr><th>العملة</th><th>الجانب</th><th>رأس المال</th><th>دخول</th><th>حالي</th><th>$</th><th>%</th></tr>
 {% for t in s.trades %}
 <tr>
-<td style="color:#00e676"><b>{{t.s}}</b> ▼1H</td>
+<td style="color:#00e676"><b>{{t.s}}</b></td>
 <td><span class="badge">SHORT</span></td>
 <td style="color:#ffeb3b">${{t.cap}}</td>
 <td>{{'%.8f'|format(t.entry)}}</td>
-<td class="live">{{'%.8f'|format(t.live)}}</td>
-<td class="pnl {{'green' if t.pnl>=0 else 'red'}}">{{t.pnl}}</td>
-<td class="pct {{'green' if t.pct>=0 else 'red'}}">{{t.pct}}%</td>
-<td>{{t.vol}}%</td>
+<td>{{'%.8f'|format(t.live)}}</td>
+<td class="{{'green' if t.pnl>=0 else 'red'}}">{{'%.2f'|format(t.pnl)}}$</td>
+<td class="{{'green' if t.pct>=0 else 'red'}}">{{'%.2f'|format(t.pct)}}%</td>
 </tr>
 {% endfor %}
 </table>
-
 <script>
-// تحديث تلقائي كل 2 ثانية بدون ما تعلق اللوحة
 setInterval(()=>{
- fetch('/api').then(r=>r.json()).then(d=>{
-   document.getElementById('capT').innerText=d.capital;
-   document.getElementById('perT').innerText=d.per_coin;
-   document.getElementById('realT').innerText=d.realized;
-   document.getElementById('unrealT').innerText=d.unrealized;
-   document.getElementById('tarT').innerText=d.target;
+ fetch('/api?v='+Date.now()).then(r=>r.json()).then(d=>{
+   let realEl=document.getElementById('realT');
+   realEl.innerText=d.realized.toFixed(2)+'$';
+   realEl.className='val '+(d.realized>=0?'green':'red');
+   let unrealEl=document.getElementById('unrealT');
+   unrealEl.innerText=d.unrealized.toFixed(2)+'$';
+   unrealEl.className='val '+(d.unrealized>=0?'green':'red');
+   document.getElementById('deltaT').innerText=d.delta;
    let rows=document.querySelectorAll('#tbl tr');
    d.trades.forEach((t,i)=>{
-     let row=rows[i+1];
-     if(!row) return;
+     let row=rows[i+1]; if(!row) return;
      row.cells[4].innerText=t.live.toFixed(8);
-     row.cells[5].innerText=t.pnl;
+     row.cells[5].innerText=t.pnl.toFixed(2)+'$';
      row.cells[5].className=t.pnl>=0?'green':'red';
-     row.cells[6].innerText=t.pct+'%';
+     row.cells[6].innerText=t.pct.toFixed(2)+'%';
      row.cells[6].className=t.pct>=0?'green':'red';
    });
  });
-},2000);
+},1000);
 </script>
 </body></html>
 """
 
 @app.route('/')
-def home(): return render_template_string(HTML, s=state)
+def home():
+    resp=make_response(render_template_string(HTML, s=state))
+    resp.headers['Cache-Control']='no-store, no-cache, must-revalidate, max-age=0'
+    resp.headers['Pragma']='no-cache'
+    resp.headers['Expires']='0'
+    return resp
+
 @app.route('/api')
 def api():
-    return jsonify({
-        "capital":state["capital"],"per_coin":state["per_coin"],
-        "realized":state["realized"],"unrealized":state["unrealized"],
-        "target":state["target"],
+    resp=make_response(jsonify({
+        "realized":state["realized"],
+        "unrealized":state["unrealized"],
+        "delta":state["delta"],
         "trades":[{"live":t["live"],"pnl":t["pnl"],"pct":t["pct"]} for t in state["trades"]]
-    })
+    }))
+    resp.headers['Cache-Control']='no-store'
+    return resp
+
 @app.route('/set_capital')
 def set_cap():
-    v=int(float(request.args.get('v'))); state["capital"]=v; state["per_coin"]=v//10
-    state["trades"]=make_trades(state["per_coin"]); state["unrealized"]=round(sum(t["pnl"] for t in state["trades"]),2); return "OK"
-@app.route('/set_percoin')
-def set_per():
-    v=int(float(request.args.get('v'))); state["per_coin"]=v; state["capital"]=v*len(BASE)
-    state["trades"]=make_trades(v); state["unrealized"]=round(sum(t["pnl"] for t in state["trades"]),2); return "OK"
+    v=int(float(request.args.get('v')))
+    state["capital"]=v
+    state["per_coin"]=v//len(BASE)
+    for t in state["trades"]:
+        t["cap"]=state["per_coin"]
+        t["pnl"]=round(t["cap"]*t["pct"]/100,2)
+    state["unrealized"]=round(sum(t["pnl"] for t in state["trades"]),2)
+    return "OK"
+
 @app.route('/set_target')
-def set_tar(): state["target"]=float(request.args.get('v')); return "OK"
+def set_tar():
+    state["delta"]=float(request.args.get('v'))
+    return "OK"
+
 @app.route('/close')
 def close():
     state["realized"]=round(state["realized"]+state["unrealized"],2)
-    state["trades"]=make_trades(state["per_coin"]); state["unrealized"]=round(sum(t["pnl"] for t in state["trades"]),2)
-    state["target"]=round(state["realized"]+50,2); return "OK"
+    state["trades"]=make_trades(state["per_coin"])
+    state["unrealized"]=round(sum(t["pnl"] for t in state["trades"]),2)
+    return "OK"
+
 @app.route('/health')
-def h(): return "OK",200
-if __name__=="__main__": app.run(host="0.0.0.0",port=int(os.environ.get("PORT",8080)))
+def h():
+    return "OK",200
+
+if __name__=="__main__":
+    app.run(host="0.0.0.0",port=int(os.environ.get("PORT",8080)))
