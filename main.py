@@ -1,182 +1,125 @@
-import os, time, threading
-import ccxt
-import pandas as pd
+import os, time, threading, requests
 from flask import Flask, jsonify, request
-
 app = Flask(__name__)
-binance = ccxt.binance()
 
-# ===== الاعدادات =====
-BASE_CAPITAL = 20.0
-TARGET_PROFIT = float(os.getenv("TARGET_PROFIT", "30"))
-bot_state = {
-    "trades": [],
-    "realized": 0.0,
-    "last_signal": None,
-    "target_profit": TARGET_PROFIT,
-    "top_coins": []
-}
+MAX_TRADES = 10
+HEAVY_COINS = ['BTCUSDT','ETHUSDT','BNBUSDT','XRPUSDT','SOLUSDT','DOGEUSDT','ADAUSDT','TRXUSDT','TONUSDT','AVAXUSDT','SHIBUSDT']
+bot_state = {"trades":[],"realized":0.0,"last_signal":None,"btc_trend":"بانتظار...","btc_change":0.0,"base_capital":20.0,"target_profit":float(os.getenv("TARGET_PROFIT","30")),"is_running":True}
 
-def get_signal():
+def get_ema200_signal():
     try:
-        # BTC كمؤشر للسوق ل EMA200
-        ohlcv = binance.fetch_ohlcv('BTC/USDT', '1h', limit=250)
-        closes = [x[4] for x in ohlcv]
-        # اخر شمعة مقفلة
-        last_close = closes[-2]
-        df = pd.DataFrame(closes)
-        ema200 = df.ewm(span=200).mean().iloc[-2,0]
-        return last_close, ema200, "LONG" if last_close > ema200 else "SHORT"
+        r = requests.get("https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1h&limit=300", timeout=10).json()
+        closes=[float(x[4]) for x in r]
+        if len(closes)<200: return None,0,0,0
+        sma=sum(closes[:200])/200; ema=sma; k=2/(200+1)
+        for p in closes[200:]: ema=p*k+ema*(1-k)
+        last_close=closes[-2]; btc_change=((closes[-2]-closes[-3])/closes[-3])*100
+        desired="LONG" if last_close>ema else "SHORT"
+        return desired,ema,btc_change,last_close
     except Exception as e:
-        print("Signal Error", e)
-        return None, None, None
+        print("EMA Error",e); return None,0,0,0
 
-def get_top_coins():
+def get_volatile_coins():
     try:
-        tickers = binance.fetch_tickers()
-        usdt = [s for s in tickers if '/USDT' in s]
-        # ترتيب حسب الحجم
-        sorted_coins = sorted(usdt, key=lambda x: tickers[x]['quoteVolume'] if tickers[x]['quoteVolume'] else 0, reverse=True)
-        # استبعد العملات المستقرة
-        blacklist = ['USDC','FDUSD','TUSD','DAI','USDP']
-        filtered = [c for c in sorted_coins if c.split('/')[0] not in blacklist][:10]
-        return [{"symbol": c.split('/')[0], "full": c} for c in filtered]
-    except:
-        return [{"symbol": s, "full": f"{s}/USDT"} for s in ["BTC","ETH","SOL","BNB","XRP","DOGE","ADA","AVAX","LINK","LTC"]]
+        r=requests.get("https://api.binance.com/api/v3/ticker/24hr",timeout=8).json()
+        cands=[]
+        for i in r:
+            s=i['symbol']
+            if s in HEAVY_COINS: continue
+            if not s.endswith('USDT'): continue
+            if "BULL" in s or "BEAR" in s or "UP" in s or "DOWN" in s: continue
+            ch=abs(float(i['priceChangePercent'])); vol=float(i['quoteVolume']); price=float(i['lastPrice'])
+            if ch>4.0 and vol>5000000 and price>0.00001:
+                cands.append({"symbol":s,"vol":ch,"price":price,"change":float(i['priceChangePercent'])})
+        cands.sort(key=lambda x:x['vol'],reverse=True); return cands[:20]
+    except: return []
 
 def bot_loop():
     while True:
-        try:
-            last_price, ema_val, desired = get_signal()
-            if desired is None:
-                time.sleep(10)
-                continue
-
-            # تحديث اسعار الصفقات المفتوحة
-            floating_now = 0
-            for t in bot_state["trades"]:
-                try:
-                    cp = float(binance.fetch_ticker(f"{t['coin']}/USDT")["last"])
-                    t["live"] = cp
-                    if t["side"] == "LONG":
-                        pct = (cp - t["entry"]) / t["entry"]
-                    else:
-                        pct = (t["entry"] - cp) / t["entry"]
-                    t["usd"] = round(pct * t["cap"], 2)
-                except:
-                    pass
-                floating_now += t.get("usd",0)
-
-            # 1- اذا لا يوجد صفقات = افتح اول مرة
-            if len(bot_state["trades"]) == 0 and desired:
-                top = get_top_coins()
-                bot_state["top_coins"] = top
-                bot_state["trades"] = []
-                for c in top:
-                    try:
-                        e = float(binance.fetch_ticker(c["full"])["last"])
-                        bot_state["trades"].append({"coin":c["symbol"],"side":desired,"entry":e,"live":e,"cap":BASE_CAPITAL,"usd":0})
-                    except: pass
-                bot_state["last_signal"] = desired
-                print(f"OPEN FIRST {desired} at {last_price} EMA {ema_val}")
-
-            # 2- قلب الاتجاه عند تغير الاشارة (اغلاق شمعة)
-            elif bot_state["last_signal"]!= desired and desired:
-                print(f"FLIP! {bot_state['last_signal']} -> {desired} | Price {last_price} vs EMA {ema_val}")
-                # احسب المحقق بسعر السوق الحالي
-                realized_now = sum(t.get("usd",0) for t in bot_state["trades"])
-                bot_state["realized"] = round(bot_state["realized"] + realized_now, 2)
-                bot_state["trades"] = []
-                top = get_top_coins()
-                bot_state["top_coins"] = top
-                for c in top:
-                    try:
-                        e = float(binance.fetch_ticker(c["full"])["last"])
-                        bot_state["trades"].append({"coin":c["symbol"],"side":desired,"entry":e,"live":e,"cap":BASE_CAPITAL,"usd":0})
-                    except: pass
-                bot_state["last_signal"] = desired
-
-            # 3- هدف الربح: اذا وصل للمبلغ يقفل ويعيد الدخول بنفس الاتجاه
-            elif floating_now >= bot_state["target_profit"] and len(bot_state["trades"])>0:
-                print(f"TARGET HIT {floating_now}$ >= {bot_state['target_profit']}$ -> RE-ENTRY")
-                bot_state["realized"] = round(bot_state["realized"] + floating_now, 2)
-                last_side = bot_state["last_signal"]
-                top = get_top_coins()
-                bot_state["top_coins"] = top
-                bot_state["trades"] = []
-                for c in top:
-                    try:
-                        e = float(binance.fetch_ticker(c["full"])["last"])
-                        bot_state["trades"].append({"coin":c["symbol"],"side":last_side,"entry":e,"live":e,"cap":BASE_CAPITAL,"usd":0})
-                    except: pass
-
-        except Exception as e:
-            print("Loop error", e)
+        if bot_state["is_running"]:
+            try:
+                desired,ema_val,btc_ch,last_price=get_ema200_signal()
+                bot_state["btc_change"]=btc_ch
+                if desired is None: time.sleep(10); continue
+                pm={x['symbol']:float(x['price']) for x in requests.get("https://api.binance.com/api/v3/ticker/price",timeout=5).json()}
+                per_trade=bot_state["base_capital"]/MAX_TRADES
+                floating=0
+                for t in bot_state["trades"]:
+                    if t["coin"] in pm:
+                        t["live"]=pm[t["coin"]]
+                        t["pct"]=round(((t["live"]-t["entry"])/t["entry"]*100 if t["side"]=="LONG" else (t["entry"]-t["live"])/t["entry"]*100),2)
+                        t["usd"]=round(t["pct"]/100*t["cap"],2)
+                    floating+=t.get("usd",0)
+                if len(bot_state["trades"])>0 and floating>=bot_state["target_profit"]:
+                    bot_state["realized"]=round(bot_state["realized"]+floating,2); bot_state["trades"]=[]
+                    market=get_volatile_coins()
+                    for c in market:
+                        if len(bot_state["trades"])>=MAX_TRADES: break
+                        bot_state["trades"].append({"coin":c["symbol"],"entry":c["price"],"live":c["price"],"side":desired,"cap":per_trade,"usd":0.0,"pct":0.0,"vol":c["vol"]})
+                elif bot_state["last_signal"]!=desired:
+                    if bot_state["trades"]: bot_state["realized"]=round(bot_state["realized"]+floating,2)
+                    bot_state["trades"]=[]; bot_state["last_signal"]=desired
+                    bot_state["btc_trend"]=f"{'UP' if desired=='LONG' else 'DOWN'} - EMA {ema_val:.2f} - {desired} - سعر {last_price:.0f}"
+                    market=get_volatile_coins()
+                    for c in market:
+                        if len(bot_state["trades"])>=MAX_TRADES: break
+                        bot_state["trades"].append({"coin":c["symbol"],"entry":c["price"],"live":c["price"],"side":desired,"cap":per_trade,"usd":0.0,"pct":0.0,"vol":c["vol"]})
+                else:
+                    bot_state["btc_trend"]=f"{'UP' if desired=='LONG' else 'DOWN'} - EMA {ema_val:.2f} - ماسك {desired} - سعر {last_price:.0f}"
+            except Exception as e: print("Loop Error",e)
         time.sleep(15)
 
 @app.route("/")
 def dashboard():
     return f"""
-    <html dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>V27</title>
-    <style>body{{background:#111;color:#fff;font-family:sans-serif;padding:15px}}.card{{background:#222;padding:12px;border-radius:10px;margin-bottom:10px}}.green{{color:#0f0}}.red{{color:#f44}} button{{padding:8px 14px;border:none;border-radius:8px;cursor:pointer}}</style>
-    </head><body>
-    <h2>بوت EMA200 - V27</h2>
-    <div class="card">
-        <div>الاتجاه: <b id="side">-</b> | EMA200: <span id="ema">-</span></div>
-        <div>محقق: <b id="realized" class="green">0</b>$ | عائم: <b id="floating">0</b>$ | الكلي: <b id="total">0</b>$</div>
-        <div style="margin-top:10px">هدف الربح: <input id="target" value="{bot_state['target_profit']}" style="width:70px"> $ <button onclick="setTarget()" style="background:#0af;color:#fff">حفظ</button>
-        <button onclick="closeAll()" style="background:#f44;color:#fff;margin-right:10px">قفل الصفقات (تحويل للعائم للمحقق)</button>
-        </div>
+    <html dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>V28</title>
+    <style>
+    body{{background:#111;color:#eee;font-family:Arial;padding:10px}}
+   .top{{background:#1e1e1e;padding:12px;border-radius:10px;margin-bottom:10px;text-align:center}}
+    table{{width:100%;border-collapse:collapse;background:#1a1a1a;border-radius:10px;overflow:hidden}}
+    th,td{{padding:8px;text-align:center;border-bottom:1px solid #333;font-size:13px}}
+    th{{background:#222}}.green{{color:#0f0}}.red{{color:#f44}}
+    </style></head><body>
+    <div class="top">
+        <h3>بوت EMA200 - V28 جدول</h3>
+        <div id="trend">تحميل...</div>
+        <div>محقق: <b id="real" class="green">0</b>$ | عائم: <b id="float">0</b>$ | كلي: <b id="total">0</b>$ | هدف: <span id="targ">{bot_state['target_profit']}</span>$</div>
+        <div style="margin-top:8px"><input id="targetIn" value="{bot_state['target_profit']}" style="width:60px"> <button onclick="setT()" style="background:#09f;color:#fff;border:0;padding:6px 10px;border-radius:6px">حفظ</button>
+        <button onclick="closeAll()" style="background:#e33;color:#fff;border:0;padding:6px 10px;border-radius:6px">قفل الصفقات</button></div>
     </div>
-    <div id="trades"></div>
+    <table><thead><tr><th>العملة</th><th>جانب</th><th>دخول</th><th>حالي</th><th>ربح $</th><th>%</th></tr></thead><tbody id="tbody"></tbody></table>
     <script>
     async function load(){{
-        let r=await fetch('/api/stats'); let j=await r.json();
-        document.getElementById('side').innerText=j.last_signal||'-';
-        document.getElementById('realized').innerText=j.realized.toFixed(2);
-        document.getElementById('floating').innerText=j.floating.toFixed(2);
+        let j=await (await fetch('/api/stats')).json();
+        document.getElementById('trend').innerText=j.btc_trend;
+        document.getElementById('real').innerText=j.realized.toFixed(2);
+        document.getElementById('float').innerText=j.floating.toFixed(2);
         document.getElementById('total').innerText=j.total.toFixed(2);
-        document.getElementById('target').value=j.target_profit;
-        let h='';
-        j.trades.forEach(t=>{{
-            let col=t.usd>=0?'green':'red';
-            h+=`<div class="card"><b>${{t.coin}}</b> ${{t.side}} دخول:${{t.entry}} حالي:${{t.live}} <span class="${{col}}">${{t.usd}}$</span></div>`;
-        }});
-        document.getElementById('trades').innerHTML=h;
+        let tb=''; j.trades.forEach(t=>{{
+            tb+=`<tr><td>${{t.coin.replace('USDT','')}}</td><td>${{t.side}}</td><td>${{t.entry}}</td><td>${{t.live}}</td><td class="${{t.usd>=0?'green':'red'}}">${{t.usd}}</td><td class="${{t.pct>=0?'green':'red'}}">${{t.pct}}%</td></tr>`;
+        }}); document.getElementById('tbody').innerHTML=tb;
     }}
-    async function closeAll(){{ await fetch('/api/close_all',{{method:'POST'}}); load(); }}
-    async function setTarget(){{ let v=document.getElementById('target').value; await fetch('/api/set_target',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{target:parseFloat(v)}})}}); load(); }}
+    async function closeAll(){{await fetch('/api/close_all',{method:'POST'}); load()}}
+    async function setT(){{let v=document.getElementById('targetIn').value; await fetch('/api/set_target',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({{target:+v}})}); load()}}
     setInterval(load,3000); load();
     </script></body></html>
     """
 
 @app.route("/api/stats")
 def stats():
-    floating = round(sum(t.get("usd",0) for t in bot_state["trades"]),2)
-    total = round(bot_state["realized"] + floating,2)
-    return jsonify({
-        "trades": bot_state["trades"],
-        "realized": bot_state["realized"],
-        "floating": floating,
-        "total": total,
-        "last_signal": bot_state["last_signal"],
-        "target_profit": bot_state["target_profit"]
-    })
+    floating=round(sum(t.get("usd",0) for t in bot_state["trades"]),2)
+    return jsonify({"trades":bot_state["trades"],"realized":bot_state["realized"],"floating":floating,"total":round(bot_state["realized"]+floating,2),"btc_trend":bot_state["btc_trend"],"target_profit":bot_state["target_profit"],"last_signal":bot_state["last_signal"]})
 
 @app.route("/api/close_all", methods=["POST"])
 def close_all():
-    floating = sum(t.get("usd",0) for t in bot_state["trades"])
-    bot_state["realized"] = round(bot_state["realized"] + floating,2)
-    bot_state["trades"] = []
-    return jsonify({"ok":True, "realized": bot_state["realized"]})
+    floating=sum(t.get("usd",0) for t in bot_state["trades"])
+    bot_state["realized"]=round(bot_state["realized"]+floating,2); bot_state["trades"]=[]
+    return jsonify({"ok":True})
 
 @app.route("/api/set_target", methods=["POST"])
 def set_target():
-    data = request.json
-    bot_state["target_profit"] = float(data.get("target",30))
-    return jsonify({"ok":True, "target": bot_state["target_profit"]})
+    bot_state["target_profit"]=float(request.json.get("target",30)); return jsonify({"ok":True})
 
-threading.Thread(target=bot_loop, daemon=True).start()
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
+threading.Thread(target=bot_loop,daemon=True).start()
+if __name__=="__main__":
+    app.run(host="0.0.0.0",port=int(os.getenv("PORT",5000)))
