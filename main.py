@@ -4,7 +4,7 @@ app = Flask(__name__)
 
 MAX_TRADES = 10
 HEAVY_COINS = ['BTCUSDT','ETHUSDT','BNBUSDT','XRPUSDT','SOLUSDT','DOGEUSDT','ADAUSDT','TRXUSDT','TONUSDT','AVAXUSDT','SHIBUSDT']
-bot_state = {"trades":[],"realized":0.0,"last_signal":None,"btc_trend":"بانتظار...","btc_change":0.0,"base_capital":20.0,"target_profit":float(os.getenv("TARGET_PROFIT","30")),"is_running":True}
+bot_state = {"trades":[],"realized":0.0,"last_signal":None,"btc_trend":"بانتظار...","btc_change":0.0,"base_capital":20.0,"target_profit":30.0,"is_running":True}
 
 def get_ema200_signal():
     try:
@@ -30,7 +30,7 @@ def get_volatile_coins():
             if "BULL" in s or "BEAR" in s or "UP" in s or "DOWN" in s: continue
             ch=abs(float(i['priceChangePercent'])); vol=float(i['quoteVolume']); price=float(i['lastPrice'])
             if ch>4.0 and vol>5000000 and price>0.00001:
-                cands.append({"symbol":s,"vol":ch,"price":price,"change":float(i['priceChangePercent'])})
+                cands.append({"symbol":s,"vol":ch,"price":price})
         cands.sort(key=lambda x:x['vol'],reverse=True); return cands[:20]
     except: return []
 
@@ -71,39 +71,44 @@ def bot_loop():
 
 @app.route("/")
 def dashboard():
-    return f"""
+    html = """
     <html dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>V28</title>
     <style>
-    body{{background:#111;color:#eee;font-family:Arial;padding:10px}}
-   .top{{background:#1e1e1e;padding:12px;border-radius:10px;margin-bottom:10px;text-align:center}}
-    table{{width:100%;border-collapse:collapse;background:#1a1a1a;border-radius:10px;overflow:hidden}}
-    th,td{{padding:8px;text-align:center;border-bottom:1px solid #333;font-size:13px}}
-    th{{background:#222}}.green{{color:#0f0}}.red{{color:#f44}}
+    body{background:#111;color:#eee;font-family:Arial;padding:10px}
+   .top{background:#1e1e1e;padding:12px;border-radius:10px;margin-bottom:10px;text-align:center}
+    table{width:100%;border-collapse:collapse;background:#1a1a1a;border-radius:10px;overflow:hidden}
+    th,td{padding:8px;text-align:center;border-bottom:1px solid #333;font-size:13px}
+    th{background:#222}.green{color:#0f0}.red{color:#f44}
     </style></head><body>
     <div class="top">
         <h3>بوت EMA200 - V28 جدول</h3>
         <div id="trend">تحميل...</div>
-        <div>محقق: <b id="real" class="green">0</b>$ | عائم: <b id="float">0</b>$ | كلي: <b id="total">0</b>$ | هدف: <span id="targ">{bot_state['target_profit']}</span>$</div>
-        <div style="margin-top:8px"><input id="targetIn" value="{bot_state['target_profit']}" style="width:60px"> <button onclick="setT()" style="background:#09f;color:#fff;border:0;padding:6px 10px;border-radius:6px">حفظ</button>
+        <div>محقق: <b id="real" class="green">0</b>$ | عائم: <b id="float">0</b>$ | كلي: <b id="total">0</b>$ | هدف: <span id="targ">30</span>$</div>
+        <div style="margin-top:8px"><input id="targetIn" value="30" style="width:60px"> <button onclick="setT()" style="background:#09f;color:#fff;border:0;padding:6px 10px;border-radius:6px">حفظ</button>
         <button onclick="closeAll()" style="background:#e33;color:#fff;border:0;padding:6px 10px;border-radius:6px">قفل الصفقات</button></div>
     </div>
     <table><thead><tr><th>العملة</th><th>جانب</th><th>دخول</th><th>حالي</th><th>ربح $</th><th>%</th></tr></thead><tbody id="tbody"></tbody></table>
     <script>
-    async function load(){{
-        let j=await (await fetch('/api/stats')).json();
-        document.getElementById('trend').innerText=j.btc_trend;
-        document.getElementById('real').innerText=j.realized.toFixed(2);
-        document.getElementById('float').innerText=j.floating.toFixed(2);
-        document.getElementById('total').innerText=j.total.toFixed(2);
-        let tb=''; j.trades.forEach(t=>{{
-            tb+=`<tr><td>${{t.coin.replace('USDT','')}}</td><td>${{t.side}}</td><td>${{t.entry}}</td><td>${{t.live}}</td><td class="${{t.usd>=0?'green':'red'}}">${{t.usd}}</td><td class="${{t.pct>=0?'green':'red'}}">${{t.pct}}%</td></tr>`;
-        }}); document.getElementById('tbody').innerHTML=tb;
-    }}
-    async function closeAll(){{await fetch('/api/close_all',{method:'POST'}); load()}}
-    async function setT(){{let v=document.getElementById('targetIn').value; await fetch('/api/set_target',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({{target:+v}})}); load()}}
+    async function load(){
+        let r = await fetch('/api/stats'); let j = await r.json();
+        document.getElementById('trend').innerText = j.btc_trend;
+        document.getElementById('real').innerText = j.realized.toFixed(2);
+        document.getElementById('float').innerText = j.floating.toFixed(2);
+        document.getElementById('total').innerText = j.total.toFixed(2);
+        document.getElementById('targ').innerText = j.target_profit;
+        document.getElementById('targetIn').value = j.target_profit;
+        let tb=''; j.trades.forEach(t=>{
+            let coin = t.coin.replace('USDT','');
+            let cls = t.usd>=0?'green':'red';
+            tb+=`<tr><td>${coin}</td><td>${t.side}</td><td>${t.entry}</td><td>${t.live}</td><td class="${cls}">${t.usd}</td><td class="${cls}">${t.pct}%</td></tr>`;
+        }); document.getElementById('tbody').innerHTML=tb;
+    }
+    async function closeAll(){await fetch('/api/close_all',{method:'POST'}); load()}
+    async function setT(){let v=document.getElementById('targetIn').value; await fetch('/api/set_target',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({target: parseFloat(v)})}); load()}
     setInterval(load,3000); load();
     </script></body></html>
     """
+    return html
 
 @app.route("/api/stats")
 def stats():
