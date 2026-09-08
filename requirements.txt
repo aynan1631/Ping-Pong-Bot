@@ -1,4 +1,2 @@
 Flask
-ccxt
-pandas
-numpy
+requests
