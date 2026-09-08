@@ -4,7 +4,7 @@ app = Flask(__name__)
 
 MAX_TRADES = 10
 HEAVY_COINS = ['BTCUSDT','ETHUSDT','BNBUSDT','XRPUSDT','SOLUSDT','DOGEUSDT','ADAUSDT','TRXUSDT','TONUSDT','AVAXUSDT','SHIBUSDT']
-bot_state = {"trades":[],"realized":0.0,"last_signal":None,"btc_trend":"بانتظار...","btc_change":0.0,"base_capital":20.0,"target_profit":30.0,"is_running":True}
+bot_state = {"trades":[],"realized":0.0,"last_signal":None,"btc_trend":"بانتظار...","base_capital":20.0,"target_profit":30.0,"is_running":True}
 
 def get_ema200_signal():
     try:
@@ -13,11 +13,10 @@ def get_ema200_signal():
         if len(closes)<200: return None,0,0,0
         sma=sum(closes[:200])/200; ema=sma; k=2/(200+1)
         for p in closes[200:]: ema=p*k+ema*(1-k)
-        last_close=closes[-2]; btc_change=((closes[-2]-closes[-3])/closes[-3])*100
+        last_close=closes[-2]; ch=((closes[-2]-closes[-3])/closes[-3])*100
         desired="LONG" if last_close>ema else "SHORT"
-        return desired,ema,btc_change,last_close
-    except Exception as e:
-        print("EMA Error",e); return None,0,0,0
+        return desired,ema,ch,last_close
+    except: return None,0,0,0
 
 def get_volatile_coins():
     try:
@@ -39,7 +38,6 @@ def bot_loop():
         if bot_state["is_running"]:
             try:
                 desired,ema_val,btc_ch,last_price=get_ema200_signal()
-                bot_state["btc_change"]=btc_ch
                 if desired is None: time.sleep(10); continue
                 pm={x['symbol']:float(x['price']) for x in requests.get("https://api.binance.com/api/v3/ticker/price",timeout=5).json()}
                 per_trade=bot_state["base_capital"]/MAX_TRADES
@@ -59,68 +57,76 @@ def bot_loop():
                 elif bot_state["last_signal"]!=desired:
                     if bot_state["trades"]: bot_state["realized"]=round(bot_state["realized"]+floating,2)
                     bot_state["trades"]=[]; bot_state["last_signal"]=desired
-                    bot_state["btc_trend"]=f"{'UP' if desired=='LONG' else 'DOWN'} - EMA {ema_val:.2f} - {desired} - سعر {last_price:.0f}"
+                    bot_state["btc_trend"]=f"{'صاعد' if desired=='LONG' else 'هابط'} - EMA {ema_val:.2f} - {desired} - {last_price:.0f}$"
                     market=get_volatile_coins()
                     for c in market:
                         if len(bot_state["trades"])>=MAX_TRADES: break
                         bot_state["trades"].append({"coin":c["symbol"],"entry":c["price"],"live":c["price"],"side":desired,"cap":per_trade,"usd":0.0,"pct":0.0,"vol":c["vol"]})
                 else:
-                    bot_state["btc_trend"]=f"{'UP' if desired=='LONG' else 'DOWN'} - EMA {ema_val:.2f} - ماسك {desired} - سعر {last_price:.0f}"
-            except Exception as e: print("Loop Error",e)
+                    bot_state["btc_trend"]=f"{'صاعد' if desired=='LONG' else 'هابط'} - EMA {ema_val:.2f} - ماسك {desired} - {last_price:.0f}$"
+            except Exception as e: print(e)
         time.sleep(15)
 
 @app.route("/")
 def dashboard():
-    html = """
-    <html dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>V28</title>
-    <style>
-    body{background:#111;color:#eee;font-family:Arial;padding:10px}
-   .top{background:#1e1e1e;padding:12px;border-radius:10px;margin-bottom:10px;text-align:center}
-    table{width:100%;border-collapse:collapse;background:#1a1a1a;border-radius:10px;overflow:hidden}
-    th,td{padding:8px;text-align:center;border-bottom:1px solid #333;font-size:13px}
-    th{background:#222}.green{color:#0f0}.red{color:#f44}
-    </style></head><body>
-    <div class="top">
-        <h3>بوت EMA200 - V28 جدول</h3>
-        <div id="trend">تحميل...</div>
-        <div>محقق: <b id="real" class="green">0</b>$ | عائم: <b id="float">0</b>$ | كلي: <b id="total">0</b>$ | هدف: <span id="targ">30</span>$</div>
-        <div style="margin-top:8px"><input id="targetIn" value="30" style="width:60px"> <button onclick="setT()" style="background:#09f;color:#fff;border:0;padding:6px 10px;border-radius:6px">حفظ</button>
-        <button onclick="closeAll()" style="background:#e33;color:#fff;border:0;padding:6px 10px;border-radius:6px">قفل الصفقات</button></div>
-    </div>
-    <table><thead><tr><th>العملة</th><th>جانب</th><th>دخول</th><th>حالي</th><th>ربح $</th><th>%</th></tr></thead><tbody id="tbody"></tbody></table>
-    <script>
-    async function load(){
-        let r = await fetch('/api/stats'); let j = await r.json();
-        document.getElementById('trend').innerText = j.btc_trend;
-        document.getElementById('real').innerText = j.realized.toFixed(2);
-        document.getElementById('float').innerText = j.floating.toFixed(2);
-        document.getElementById('total').innerText = j.total.toFixed(2);
-        document.getElementById('targ').innerText = j.target_profit;
-        document.getElementById('targetIn').value = j.target_profit;
-        let tb=''; j.trades.forEach(t=>{
-            let coin = t.coin.replace('USDT','');
-            let cls = t.usd>=0?'green':'red';
-            tb+=`<tr><td>${coin}</td><td>${t.side}</td><td>${t.entry}</td><td>${t.live}</td><td class="${cls}">${t.usd}</td><td class="${cls}">${t.pct}%</td></tr>`;
-        }); document.getElementById('tbody').innerHTML=tb;
-    }
-    async function closeAll(){await fetch('/api/close_all',{method:'POST'}); load()}
-    async function setT(){let v=document.getElementById('targetIn').value; await fetch('/api/set_target',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({target: parseFloat(v)})}); load()}
-    setInterval(load,3000); load();
-    </script></body></html>
-    """
-    return html
+    return """
+<html dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>EMA200 V29 فخم</title>
+<style>
+body{background:linear-gradient(135deg,#0f0c29,#302b63,#24243e);color:#fff;font-family:Tajawal,Arial;min-height:100vh;margin:0;padding:15px}
+.top{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:15px}
+.card{background:rgba(255,255,255,0.08);backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,0.1);border-radius:15px;padding:12px;text-align:center}
+.card b{font-size:18px;display:block;margin-top:5px}
+.card small{opacity:0.7}
+table{width:100%;border-collapse:collapse;background:rgba(0,0,0,0.3);border-radius:15px;overflow:hidden}
+th{background:rgba(255,255,255,0.1);padding:12px 6px;font-size:12px}
+td{padding:10px 6px;text-align:center;border-bottom:1px solid rgba(255,255,255,0.05);font-size:13px}
+.green{color:#00ff88}.red{color:#ff4d6d}
+.badge{padding:3px 8px;border-radius:20px;font-size:11px}
+.long{background:#00ff8822;color:#00ff88}.short{background:#ff4d6d22;color:#ff4d6d}
+input{background:#00000055;color:#fff;border:1px solid #ffffff22;border-radius:8px;padding:6px;width:70px;text-align:center}
+</style></head><body>
+<h2 style="text-align:center">🚀 بوت EMA200 - V29 الفخم</h2>
+<div class="top">
+<div class="card"><small>رأس المال</small><b id="cap">$20</b></div>
+<div class="card"><small>المحقق</small><b id="real" class="green">$0</b></div>
+<div class="card"><small>العائم</small><b id="float">$0</b></div>
+<div class="card"><small>الكلي</small><b id="total">$0</b></div>
+</div>
+<div class="card" style="margin-bottom:15px">
+<div id="trend" style="font-size:16px;font-weight:bold;margin-bottom:8px"></div>
+هدف الربح: <input id="targetIn" value="30"> $ <button onclick="setT()" style="background:#6c5ce7;color:#fff;border:0;padding:6px 14px;border-radius:8px;margin-right:5px">حفظ</button>
+<button onclick="closeAll()" style="background:#ff3b3b;color:#fff;border:0;padding:6px 14px;border-radius:8px">قفل الصفقات</button>
+</div>
+<table><thead><tr><th>العملة</th><th>الجانب</th><th>دخول</th><th>حالي</th><th>رأس مال</th><th>ربح $</th><th>ربح %</th><th>تقلب</th></tr></thead><tbody id="tbody"></tbody></table>
+<script>
+async function load(){
+ let j=await (await fetch('/api/stats')).json();
+ document.getElementById('cap').innerText='$'+j.base_capital;
+ document.getElementById('real').innerText='$'+j.realized.toFixed(2);
+ document.getElementById('float').innerText='$'+j.floating.toFixed(2);
+ document.getElementById('total').innerText='$'+j.total.toFixed(2);
+ document.getElementById('trend').innerText=j.btc_trend+' | هدف: $'+j.target_profit;
+ document.getElementById('targetIn').value=j.target_profit;
+ let tb=''; j.trades.forEach(t=>{
+   let cls=t.usd>=0?'green':'red'; let badge=t.side=='LONG'?'long':'short';
+   tb+=`<tr><td><b>${t.coin.replace('USDT','')}</b></td><td><span class="badge ${badge}">${t.side}</span></td><td>${t.entry}</td><td>${t.live}</td><td>$${t.cap.toFixed(2)}</td><td class="${cls}">${t.usd}</td><td class="${cls}">${t.pct}%</td><td>${t.vol.toFixed(1)}%</td></tr>`;
+ }); document.getElementById('tbody').innerHTML=tb;
+}
+async function closeAll(){if(!confirm('تقفل الكل؟')) return; await fetch('/api/close_all',{method:'POST'}); load()}
+async function setT(){let v=document.getElementById('targetIn').value; await fetch('/api/set_target',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({target:parseFloat(v)})}); load()}
+setInterval(load,3000); load();
+</script></body></html>
+"""
 
 @app.route("/api/stats")
 def stats():
     floating=round(sum(t.get("usd",0) for t in bot_state["trades"]),2)
-    return jsonify({"trades":bot_state["trades"],"realized":bot_state["realized"],"floating":floating,"total":round(bot_state["realized"]+floating,2),"btc_trend":bot_state["btc_trend"],"target_profit":bot_state["target_profit"],"last_signal":bot_state["last_signal"]})
-
+    return jsonify({"trades":bot_state["trades"],"realized":bot_state["realized"],"floating":floating,"total":round(bot_state["realized"]+floating,2),"btc_trend":bot_state["btc_trend"],"target_profit":bot_state["target_profit"],"base_capital":bot_state["base_capital"],"last_signal":bot_state["last_signal"]})
 @app.route("/api/close_all", methods=["POST"])
 def close_all():
     floating=sum(t.get("usd",0) for t in bot_state["trades"])
-    bot_state["realized"]=round(bot_state["realized"]+floating,2); bot_state["trades"]=[]
-    return jsonify({"ok":True})
-
+    bot_state["realized"]=round(bot_state["realized"]+floating,2); bot_state["trades"]=[]; return jsonify({"ok":True})
 @app.route("/api/set_target", methods=["POST"])
 def set_target():
     bot_state["target_profit"]=float(request.json.get("target",30)); return jsonify({"ok":True})
