@@ -1,56 +1,44 @@
 from flask import Flask, render_template_string, request
-import os, threading, time, random
+import os, random, threading, time
+
 app = Flask(__name__)
 
-def new_trades():
-    data=[
-        ("ASTER",0.75),("SAHARA",0.0097),("MEME",0.00220),("PEPE",0.0000078),
-        ("SHIB",0.0000119),("BONK",0.0000205),("FLOKI",0.000130),("WIF",1.39),
-        ("BOME",0.0085),("DOGE",0.121)
-    ]
+def make_trades():
+    coins = [("ASTER",0.7517),("SAHARA",0.00973),("MEME",0.00220),("PEPE",0.0000079),("SHIB",0.0000119),("BONK",0.0000205),("FLOKI",0.00013),("WIF",1.39),("BOME",0.00851),("DOGE",0.1218)]
     out=[]
-    for s, p in data:
-        live = p * random.uniform(0.97,1.03)
-        pct = (p - live)/p * 100
-        out.append({
-            "s":s,"side":"SHORT","cap":500,"entry":p,"live":live,
-            "pnl":round(500*pct/100,2),"pct":round(pct,2),
-            "vol":round(random.uniform(3.5,7.5),1)
-        })
+    for s,p in coins:
+        live = p*random.uniform(0.98,1.02)
+        pct = (p-live)/p*100
+        out.append({"s":s,"side":"SHORT","cap":500,"entry":p,"live":live,"pnl":round(500*pct/100,2),"pct":round(pct,2),"vol":round(random.uniform(3.5,7.5),1)})
     return out
 
-state={
-    "capital":5000,"realized":243.7,"unrealized":0,
-    "btc_price":78376,"ema":78944,"target":293.7,
-    "trades": new_trades()
-}
-state["unrealized"]=round(sum([t["pnl"] for t in state["trades"]],2)
+state={"capital":5000,"realized":243.7,"unrealized":0,"btc_price":78376,"ema":78944,"target":293.7,"trades":make_trades()}
+state["unrealized"]=round(sum(t["pnl"] for t in state["trades"]),2)
 
 def worker():
     while True:
-        s=0
+        tot=0
         for t in state["trades"]:
-            t["live"] *= random.uniform(0.997,1.003)
+            t["live"]*=random.uniform(0.997,1.003)
             ch=(t["entry"]-t["live"])/t["entry"]*100
             t["pnl"]=round(t["cap"]*ch/100,2)
             t["pct"]=round(ch,2)
-            s+=t["pnl"]
-        state["unrealized"]=round(s,2)
-        time.sleep(2)
-
+            tot+=t["pnl"]
+        state["unrealized"]=round(tot,2)
+        time.sleep(3)
 threading.Thread(target=worker,daemon=True).start()
 
 HTML="""
 <!DOCTYPE html><html dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>V34</title>
+<title>V34 FIX</title>
 <style>
-body{background:#0f1123;color:#fff;font-family:Tahoma;margin:0;padding:10px}
+body{background:#0f1123;color:#fff;font-family:Tahoma;margin:0;padding:12px}
 .title{text-align:center;color:#ffcc00;font-size:20px;font-weight:bold;margin:12px}
 .cards{display:flex;gap:10px;justify-content:center}
 .card{background:#1a1d35;border:1px solid #2a2d4a;border-radius:12px;padding:12px 18px;min-width:120px;text-align:center}
-.lbl{color:#888;font-size:11px}.val{font-size:17px;font-weight:bold;margin-top:3px}
-.green{color:#00ff88!important}.red{color:#ff4444!important}
-.bar{background:#1a1d35;border:1px solid #2a2d4a;border-radius:10px;padding:12px;text-align:center;margin:12px 0}
+.lbl{color:#999;font-size:11px}.val{font-size:18px;font-weight:bold;margin-top:4px}
+.green{color:#00ff88}.red{color:#ff4444}
+.bar{background:#1a1d35;border:1px solid #2a2d4a;border-radius:12px;padding:12px;text-align:center;margin:12px 0}
 .btn{padding:8px 14px;border-radius:8px;border:0;cursor:pointer;font-weight:bold;margin:3px}
 .btn-red{background:#e53935;color:#fff}.btn-blue{background:#3a5bff;color:#fff}
 input{background:#0f1123;color:#fff;border:1px solid #555;border-radius:8px;padding:7px;width:80px;text-align:center}
@@ -64,7 +52,7 @@ function saveTarget(){let v=document.getElementById('t').value;fetch('/set_targe
 function closeTrades(){fetch('/close').then(()=>location.reload());}
 </script>
 </head><body>
-<div class="title">💎 V34 - تحت EMA200 - 10 صفقات نشطة</div>
+<div class="title">💎 V34 LUXURY - تحت EMA200</div>
 <div class="cards">
 <div class="card"><div class="lbl">رأس المال</div><div class="val">$5000</div></div>
 <div class="card"><div class="lbl">المحققة</div><div class="val {{'green' if state.realized>=0 else 'red'}}">${{state.realized}}</div></div>
@@ -101,8 +89,8 @@ def set_t():
 @app.route('/close')
 def close_all():
     state["realized"]=round(state["realized"]+state["unrealized"],2)
-    state["trades"]=new_trades()
-    state["unrealized"]=round(sum([t["pnl"] for t in state["trades"]],2)
+    state["trades"]=make_trades()
+    state["unrealized"]=round(sum(t["pnl"] for t in state["trades"]),2)
     state["target"]=state["realized"]+50
     return "OK"
 @app.route('/health')
