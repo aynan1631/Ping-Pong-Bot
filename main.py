@@ -4,7 +4,8 @@ app = Flask(__name__)
 cooldown = {}
 MAX_OPEN = 10
 PER_TRADE = 500
-PER_TRADE_TP = 5.0  # هدف كل صفقة ثابت 5$
+TP = 5.0
+SL = -15.0 # وقف خسارة لكل صفقة
 logs=[]
 
 def log(m):
@@ -18,16 +19,16 @@ def get_volatile_coins(limit=80):
         for d in data:
             sym=d["symbol"]
             if not sym.endswith("USDT"): continue
-            if sym in ["BTCUSDT","ETHUSDT","BNBUSDT","XRPUSDT"]: continue
+            if sym in ["BTCUSDT","ETHUSDT","BNBUSDT"]: continue
             if "UP" in sym or "DOWN" in sym: continue
             try: price=float(d["lastPrice"]); vol=float(d["quoteVolume"]); change=float(d["priceChangePercent"])
             except: continue
-            if price>5 or price<0.0000005 or vol<10000000 or abs(change)<2.2: continue
-            if sym in cooldown and time.time()-cooldown[sym]<3600: continue
+            if price>10 or price<0.0000005 or vol<8000000 or abs(change)<2.5: continue
+            if sym in cooldown and time.time()-cooldown[sym]<300: continue
             cands.append((sym, abs(change)*math.log(vol)))
         cands.sort(key=lambda x: x[1], reverse=True)
         return [s for s,_ in cands[:limit]]
-    except: return ["BONKUSDT","WIFUSDT","PENGUUSDT","ENAUSDT","CAKEUSDT","XLMUSDT","ARBUSDT"]
+    except: return ["BONKUSDT","WIFUSDT","PENGUUSDT","ENAUSDT","ARBUSDT","ONDUSDT","PUMPUSDT","FETUSDT"]
 
 def get_data(sym):
     try:
@@ -43,16 +44,16 @@ state={"balance":5000.0,"realized":0.0,"unrealized":0.0,"total_target":0.0,"trad
 
 def try_add_one():
     if not state["trading"] or len(state["trades"])>=MAX_OPEN or state["balance"]<PER_TRADE: return False
-    have=set(t["s"] for t in state["trades"])
+    have=set(t["sym"] for t in state["trades"])
     for sym in get_volatile_coins(80):
-        short=sym.replace("USDT","")
-        if short in have or sym in cooldown: continue
+        if sym in have: continue
         d=get_data(sym)
-        if not d or abs(d["price"]-d["sma"])/d["sma"]>0.03: continue
-        t={"s":short,"sym":sym,"cap":PER_TRADE,"entry":d["price"],"live":d["price"],"side":"SHORT" if d["price"]<d["ema"] else "LONG","pnl":0,"pct":0}
+        if not d: continue
+        if abs(d["price"]-d["sma"])/d["sma"]>0.04: continue # رجعنا الفلتر 4%
+        t={"s":sym.replace("USDT",""),"sym":sym,"cap":PER_TRADE,"entry":d["price"],"live":d["price"],"side":"SHORT" if d["price"]<d["ema"] else "LONG","pnl":0,"pct":0}
         state["trades"].append(t)
         state["balance"]=round(state["balance"]-PER_TRADE,2)
-        log(f"OPEN {short} {t['side']} bal {state['balance']}")
+        log(f"OPEN {t['s']} {t['side']} bal {state['balance']}")
         return True
     return False
 
@@ -60,41 +61,46 @@ def worker():
     while True:
         try:
             if state["trading"]:
-                # فتح صفقات جديدة إذا فيه رصيد
                 while len(state["trades"])<MAX_OPEN and state["balance"]>=PER_TRADE:
                     if not try_add_one(): break
-                
-                tot=0
-                # تحديث الأسعار + قفل فردي 5$ إذا الهدف الكلي صفر
+                    time.sleep(0.3)
+
                 for t in list(state["trades"]):
                     d=get_data(t["sym"])
                     if not d: continue
                     t["live"]=d["price"]
-                    t["pct"]=round((t["entry"]-d["price"])/t["entry"]*100,2) if t["side"]=="SHORT" else round((d["price"]-t["entry"])/t["entry"]*100,2)
+                    t["pct"]=round((d["price"]-t["entry"])/t["entry"]*100,2) if t["side"]=="LONG" else round((t["entry"]-d["price"])/t["entry"]*100,2)
                     t["pnl"]=round(t["cap"]*t["pct"]/100,2)
-                    tot+=t["pnl"]
 
-                    # إذا الهدف الكلي = 0 -> كل صفقة هدفها 5$ وتقفل لحالها وتبحث عن أقوى عملة
-                    if state["total_target"] <= 0.01 and t["pnl"] >= PER_TRADE_TP:
-                        state["balance"]=round(state["balance"]+t["cap"]+t["pnl"],2)
-                        state["realized"]=round(state["realized"]+t["pnl"],2)
-                        cooldown[t["sym"]]=time.time()
-                        state["trades"].remove(t)
-                        log(f"TP 5$ {t['s']} +{t['pnl']}$ -> bal {state['balance']} | يبحث عن عملة أقوى...")
-                        # يفتح مباشرة عملة أقوى بدالها
-                        try_add_one()
-                        continue
+                state["unrealized"]=round(sum(t["pnl"] for t in state["trades"]),2)
 
-                state["unrealized"]=round(tot,2)
+                for t in list(state["trades"]):
+                    if state["total_target"]<=0.01:
+                        # ربح 5$
+                        if t["pnl"] >= TP:
+                            state["balance"]=round(state["balance"]+t["cap"]+t["pnl"],2)
+                            state["realized"]=round(state["realized"]+t["pnl"],2)
+                            cooldown[t["sym"]]=time.time()
+                            state["trades"].remove(t)
+                            log(f"✅ TP {t['s']} +{t['pnl']}$ bal {state['balance']}")
+                            try_add_one()
+                        # خسارة -15$ يقفل ويبحث عن أقوى
+                        elif t["pnl"] <= SL:
+                            state["balance"]=round(state["balance"]+t["cap"]+t["pnl"],2)
+                            state["realized"]=round(state["realized"]+t["pnl"],2)
+                            cooldown[t["sym"]]=time.time()
+                            state["trades"].remove(t)
+                            log(f"❌ SL {t['s']} {t['pnl']}$ bal {state['balance']} | يبحث عن أقوى")
+                            try_add_one()
 
-                # إذا الهدف الكلي > 0 -> يقفل الكل مع بعض
-                if state["total_target"] > 0.01 and state["unrealized"] >= state["total_target"] and state["unrealized"]>0:
+                state["unrealized"]=round(sum(t["pnl"] for t in state["trades"]),2)
+
+                if state["total_target"]>0.01 and state["unrealized"]>=state["total_target"] and state["unrealized"]>0:
                     for t in list(state["trades"]):
                         state["balance"]=round(state["balance"]+t["cap"]+t["pnl"],2)
                         state["realized"]=round(state["realized"]+t["pnl"],2)
                         cooldown[t["sym"]]=time.time()
-                        log(f"CLOSE ALL {t['s']} +{t['pnl']}")
-                    state["trades"]=[]; state["unrealized"]=0
+                    state["trades"]=[]; state["unrealized"]=0; log("CLOSE ALL")
         except Exception as e:
             log(f"err {e}")
         time.sleep(3)
@@ -104,52 +110,50 @@ threading.Thread(target=worker,daemon=True).start()
 HTML="""
 <!DOCTYPE html><html dir="rtl"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>V50 ZERO=5$ per trade</title>
+<title>V51 TP5 SL15</title>
 <style>
 body{background:#0a0c1e;color:#fff;margin:0;padding:6px;font-family:Tahoma}
-.title{text-align:center;color:#ffcc00;font-size:18px;font-weight:900;margin:5px}
-.bar{background:#151833;border:2px solid #ffcc0044;border-radius:12px;padding:8px}
-.status{text-align:center;color:#00ff88;font-size:13px;font-weight:900;margin-bottom:6px}
-.row-main{display:flex;align-items:center;gap:5px;flex-wrap:wrap;justify-content:space-between}
-.card{background:linear-gradient(145deg,#1e2147,#13152e);border:2px solid #ffcc00;border-radius:10px;padding:5px 8px;min-width:100px;text-align:center}
+.title{text-align:center;color:#ffcc00;font-size:17px;font-weight:900}
+.bar{background:#151833;border:2px solid #ffcc0044;border-radius:12px;padding:7px}
+.status{text-align:center;color:#00ff88;font-size:12px;font-weight:900;margin-bottom:5px}
+.row-main{display:flex;gap:4px;flex-wrap:wrap;justify-content:space-between;align-items:center}
+.card{background:#1e2147;border:2px solid #ffcc00;border-radius:10px;padding:4px 7px;min-width:90px;text-align:center}
 .card.orange{border-color:#ff9800}
-.lbl{color:#9aa0c5;font-size:9px}.val{font-size:19px;font-weight:900}
-.box{display:flex;align-items:center;gap:4px;background:rgba(0,0,0,0.3);padding:4px 5px;border-radius:7px;border:1px solid #ffffff15}
-input{background:#0a0c1e;color:#ffcc00;border:2px solid #666;border-radius:6px;padding:5px;width:65px;text-align:center;font-size:14px!important;font-weight:900;direction:ltr}
-.btn{padding:6px 9px;border-radius:6px;border:0;font-weight:900;font-size:10px;cursor:pointer}
+.lbl{color:#9aa0c5;font-size:8px}.val{font-size:17px;font-weight:900}
+.box{display:flex;gap:3px;background:#0000004d;padding:3px;border-radius:6px;border:1px solid #ffffff15;align-items:center}
+input{background:#0a0c1e;color:#ffcc00;border:2px solid #666;border-radius:5px;padding:4px;width:55px;text-align:center;font-weight:900;direction:ltr}
+.btn{padding:5px 7px;border-radius:6px;border:0;font-weight:900;font-size:10px;cursor:pointer}
 .g{color:#00ff88}.r{color:#ff3d57}.gold{color:#ffcc00}
-table{width:100%;background:#151833;border-radius:8px;border-collapse:collapse;margin-top:6px}
-th{background:#1e2040;color:#ffcc00;padding:6px 2px;font-size:11px}
-td{padding:5px 2px;text-align:center;border-top:1px solid #2a2d4a;font-size:10px}
-.badge-long{background:#00e676;color:#000;padding:4px 10px;border-radius:12px;font-size:10px;font-weight:900;display:inline-block;min-width:45px}
-.badge-short{background:#ff1744;color:#fff;padding:4px 10px;border-radius:12px;font-size:10px;font-weight:900;display:inline-block;min-width:45px;box-shadow:0 0 8px #ff174488}
-.log{background:#000;border-radius:8px;padding:6px;margin-top:6px;font-size:11px;color:#0f0;max-height:130px;overflow:auto;direction:ltr;text-align:left}
-.ltr{direction:ltr;display:inline-block}
+table{width:100%;background:#151833;border-radius:8px;border-collapse:collapse;margin-top:5px}
+th{background:#1e2040;color:#ffcc00;padding:5px 1px;font-size:10px}
+td{padding:4px 1px;text-align:center;border-top:1px solid #2a2d4a;font-size:10px}
+.badge-long{background:#00e676;color:#000;padding:3px 7px;border-radius:10px;font-size:9px;font-weight:900;min-width:40px;display:inline-block}
+.badge-short{background:#ff1744;color:#fff;padding:3px 7px;border-radius:10px;font-size:9px;font-weight:900;min-width:40px;display:inline-block}
+.log{background:#000;border-radius:8px;padding:5px;margin-top:5px;font-size:10px;color:#0f0;max-height:120px;overflow:auto;direction:ltr;text-align:left}
+.ltr{direction:ltr;display:inline-block;font-family:monospace}
 </style></head><body>
-<div class="title">💎 V50 - هدف 0 = كل صفقة $5 وتقفل وتجيب أقوى عملة</div>
+<div class="title">💎 V51 - TP +$5 ✅ / SL -$15 ❌ - يفتح 10</div>
 <div class="bar">
-<div class="status" id="st">هدف كلي {{s.total_target}}$ {% if s.total_target<=0.01 %}(معطل - كل صفقة $5){% endif %} | مفتوح {{s.trades|length}}/10 | رصيد {{'%.0f'|format(s.balance)}}$ | محجوز {{s.trades|length*500}}$ | محقق {{'%.2f'|format(s.realized)}}$</div>
+<div class="status" id="st">هدف {{s.total_target}}$ {% if s.total_target<=0.01 %}(معطل-TP5/SL15){% endif %} | {{s.trades|length}}/10 | رصيد {{'%.0f'|format(s.balance)}}$ | محجوز {{s.trades|length*500}}$ | محقق {{'%.1f'|format(s.realized)}}$</div>
 <div class="row-main">
-  <div class="card"><div class="lbl">💰 الرصيد الكلي</div><div class="val gold"><span class="ltr" id="bal">{{'%.2f'|format(s.balance)}}$</span></div></div>
-  <div class="box"><span style="color:#ffcc00;font-size:9px">هدف الكل</span><input id="t" value="{{s.total_target}}"><button class="btn" style="background:#3d5afe;color:#fff" onclick="fetch('/set_target?v='+document.getElementById('t').value).then(()=>location.reload())">حفظ</button></div>
-  <div class="card orange"><div class="lbl">📈 غير محققة</div><div class="val" id="uC"><span class="ltr" id="unreal">{{'%.2f'|format(s.unrealized)}}$</span></div></div>
-  <button class="btn" style="background:#ff3d00;color:#fff" onclick="fetch('/close_all').then(()=>location.reload())">🔒 قفل الكل</button>
+  <div class="card"><div class="lbl">💰 الرصيد</div><div class="val gold"><span class="ltr" id="bal">{{'%.2f'|format(s.balance)}}$</span></div></div>
+  <div class="box"><span style="color:#ffcc00;font-size:8px">هدف الكل</span><input id="t" value="{{s.total_target}}"><button class="btn" style="background:#3d5afe;color:#fff" onclick="fetch('/set_target?v='+document.getElementById('t').value).then(()=>location.reload())">حفظ</button></div>
+  <div class="card orange"><div class="lbl">📈 غير محققة</div><div class="val" id="uC"><span class="ltr" id="unreal">{{'%+.2f'|format(s.unrealized)}}$</span></div></div>
+  <button class="btn" style="background:#ff3d00;color:#fff" onclick="fetch('/close_all').then(()=>location.reload())">🔒</button>
   <button class="btn" style="background:#00e676" onclick="fetch('/toggle').then(()=>location.reload())">⏸️</button>
   <button class="btn" style="background:#ff9800" onclick="if(confirm('تصفير؟'))fetch('/reset').then(()=>location.reload())">🔄</button>
 </div>
 </div>
-<table><tr><th>العملة</th><th>الجانب</th><th>رأس مال</th><th>دخول</th><th>حالي</th><th>$</th><th>%</th><th>TP</th><th>×</th></tr>
+<table><tr><th>العملة</th><th>الجانب</th><th>دخول</th><th>حالي</th><th>$</th><th>%</th><th>×</th></tr>
 {% for t in s.trades %}
 <tr>
-<td style="color:#00ff88"><b>{{t.s}}</b></td>
+<td><b>{{t.s}}</b></td>
 <td><span class="{{'badge-long' if t.side=='LONG' else 'badge-short'}}">{{t.side}}</span></td>
-<td>$500</td>
 <td><span class="ltr">{{'%.4f'|format(t.entry)}}</span></td>
 <td><span class="ltr">{{'%.4f'|format(t.live)}}</span></td>
-<td class="{{'g' if t.pnl>=0 else 'r'}}">{{'%.2f'|format(t.pnl)}}$</td>
-<td class="{{'g' if t.pct>=0 else 'r'}}">{{'%.2f'|format(t.pct)}}%</td>
-<td style="color:#ffcc00">{{'%.0f'|format((t.pnl/5*100))}}%</td>
-<td><button class="btn" style="background:#333;color:#fff;padding:2px 4px" onclick="fetch('/close_one?s={{t.s}}').then(()=>location.reload())">×</button></td>
+<td class="{{'g' if t.pnl>=0 else 'r'}}"><span class="ltr">{{'%+.2f'|format(t.pnl)}}$</span></td>
+<td class="{{'g' if t.pct>=0 else 'r'}}"><span class="ltr">{{'%+.2f'|format(t.pct)}}%</span></td>
+<td><button class="btn" style="background:#333;color:#fff;padding:1px 4px" onclick="fetch('/close_one?s={{t.s}}').then(()=>location.reload())">×</button></td>
 </tr>
 {% endfor %}
 </table>
@@ -158,9 +162,10 @@ td{padding:5px 2px;text-align:center;border-top:1px solid #2a2d4a;font-size:10px
 setInterval(()=>{
  fetch('/api').then(r=>r.json()).then(d=>{
   document.getElementById('bal').innerText=d.balance.toFixed(2)+'$';
-  document.getElementById('unreal').innerText=d.unrealized.toFixed(2)+'$';
-  document.getElementById('st').innerText=`هدف كلي ${d.total_target}$ ${d.total_target<=0.01?'(معطل - كل صفقة $5)':''} | مفتوح ${d.trades.length}/10 | رصيد ${d.balance.toFixed(0)}$ | محجوز ${d.trades.length*500}$ | محقق ${d.realized.toFixed(2)}$`;
+  document.getElementById('unreal').innerText=(d.unrealized>=0?'+':'')+d.unrealized.toFixed(2)+'$';
+  document.getElementById('st').innerText=`هدف ${d.total_target}$ ${d.total_target<=0.01?'(معطل-TP5/SL15)':''} | ${d.trades.length}/10 | رصيد ${d.balance.toFixed(0)}$ | محجوز ${d.trades.length*500}$ | محقق ${d.realized.toFixed(1)}$`;
   document.getElementById('uC').className='val '+(d.unrealized>=0?'g':'r');
+  if(d.trades.length!= {{s.trades|length}} && Math.abs(d.trades.length - {{s.trades|length}})>1) location.reload();
  });
  fetch('/logs').then(r=>r.text()).then(t=>{document.getElementById('logBox').innerHTML=t.replace(/\\n/g,'<br>')});
 },2000);
@@ -175,11 +180,11 @@ def api(): return jsonify(state)
 def get_logs(): return "\n".join(logs)
 @app.route('/set_target')
 def set_tar():
-    try: state["total_target"]=float(request.args.get('v')); log(f"SET TOTAL TARGET {state['total_target']}")
+    try: state["total_target"]=float(request.args.get('v')); log(f"SET {state['total_target']}")
     except: pass
     return "OK"
 @app.route('/reset')
-def reset(): state["balance"]=5000.0; state["realized"]=0.0; state["unrealized"]=0.0; state["trades"]=[]; log("RESET 5000"); return "OK"
+def reset(): state["balance"]=5000.0; state["realized"]=0.0; state["unrealized"]=0.0; state["trades"]=[]; cooldown.clear(); log("RESET"); return "OK"
 @app.route('/close_all')
 def close_all():
     for t in list(state["trades"]):
