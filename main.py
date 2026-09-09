@@ -2,122 +2,47 @@ from flask import Flask, render_template_string, request, jsonify
 import os, threading, time, requests
 app = Flask(__name__)
 cooldown = {}
-trends_cache = {}
-CACHE_TTL = 5
-
-def get_rsi(closes, p=14):
-    try:
-        deltas=[closes[i]-closes[i-1] for i in range(1,len(closes))]
-        g=sum(d if d>0 else 0 for d in deltas[-p:])/p
-        l=sum(-d if d<0 else 0 for d in deltas[-p:])/p
-        if l==0: return 70
-        return 100-(100/(1+g/l))
-    except: return 50
-
-def get_volatile_coins(limit=150):
-    try:
-        data=requests.get("https://api.binance.com/api/v3/ticker/24hr",timeout=3).json()
-        cands=[]
-        for d in data:
-            sym=d["symbol"]
-            if not sym.endswith("USDT"): continue
-            if sym in ["BTCUSDT","ETHUSDT","BNBUSDT"]: continue
-            if "UP" in sym or "DOWN" in sym: continue
-            try: price=float(d["lastPrice"]); vol=float(d["quoteVolume"]); ch=float(d["priceChangePercent"])
-            except: continue
-            if price>30 or price<0.0000005 or vol<800000 or abs(ch)<0.3: continue
-            if sym in cooldown and time.time()-cooldown[sym]<15: continue
-            cands.append((sym,abs(ch)))
-        cands.sort(key=lambda x: x[1], reverse=True)
-        return [s for s,_ in cands[:limit]]
-    except: return ["HEMIUSDT","PENGUUSDT","TUTUSDT","TRUMPUSDT","ASTERUSDT","WIFUSDT","FILUSDT","FORMUSDT","STOUSDT","MUSDT"]
-
-def get_data_v2(sym):
-    try:
-        d1=requests.get(f"https://api.binance.com/api/v3/klines?symbol={sym}&interval=1h&limit=60",timeout=2).json()
-        c1=[float(k[4]) for k in d1]
-        price=c1[-1]; sma20=sum(c1[-20:])/20; sma50=sum(c1[-50:])/50; rsi=get_rsi(c1)
-        return {"price":price,"sma20":sma20,"sma50":sma50,"rsi":round(rsi,1),"trend4H":"UP" if c1[-1]>sma20 else "DOWN"}
-    except: return None
-
-def get_trend_tf(sym, interval):
-    try:
-        key=f"{sym}_{interval}"; now=time.time()
-        if key in trends_cache and now-trends_cache[key]['time']<CACHE_TTL:
-            return trends_cache[key]['trend']
-        if interval!="1h":
-            return "UP"
-        url=f"https://api.binance.com/api/v3/klines?symbol={sym}&interval=1h&limit=50"
-        data=requests.get(url,timeout=1).json()
-        closes=[float(k[4]) for k in data]
-        sma20=sum(closes[-20:])/20
-        trend="UP" if closes[-1]>sma20 else "DOWN"
-        trends_cache[key]={'trend':trend,'time':now}
-        return trend
-    except: return "UP"
-
-def get_btc_all_tf():
-    try:
-        if "BTC_ALL" in trends_cache and time.time()-trends_cache["BTC_ALL"]['time']<5:
-            return trends_cache["BTC_ALL"]['data']
-        t=get_trend_tf("BTCUSDT","1h")
-        data={"1h":t,"30m":t,"15m":t,"5m":t}
-        trends_cache["BTC_ALL"]={'data':data,'time':time.time()}
-        return data
-    except: return {"1h":"UP"}
-
-def is_mtf_aligned(sym, side, btc_trends):
-    t=get_trend_tf(sym,"1h")
-    if side=="LONG" and t=="UP": return True
-    if side=="SHORT" and t=="DOWN": return True
-    return True
-
-def get_all_prices_fast():
-    try:
-        data=requests.get("https://api.binance.com/api/v3/ticker/price",timeout=1).json()
-        return {d["symbol"]: float(d["price"]) for d in data}
-    except: return {}
-
-state={"total_capital":5000.0,"per_trade":100.0,"balance":5000.0,"realized":0.0,"unrealized":0.0,"total_target":1.0,"trades":[],"TP":1.2,"SL":-2.5,"cycles":0}
+state={"total_capital":5000.0,"per_trade":100.0,"balance":5000.0,"realized":0.0,"unrealized":0.0,"total_target":0.5,"trades":[],"TP":0.35,"SL":-0.65,"cycles":0}
 
 def recalc_balance():
     locked=sum(t["cap"] for t in state["trades"])
     state["balance"]=round(state["total_capital"]-locked,2)
 
-def try_add_one():
+def try_add_fast():
     per=state["per_trade"]; max_open=int(state["total_capital"]//per) if per>0 else 50
     if len(state["trades"])>=max_open or state["balance"]<per*0.9: return False
-    have=set(t["sym"] for t in state["trades"])
-    cands=[]
-    for sym in get_volatile_coins(150):
-        if sym in have: continue
-        d=get_data_v2(sym)
-        if not d: continue
-        if abs(d["price"]-d["sma20"])/d["sma20"]>0.10: continue
-        side=None
-        if d["price"]>d["sma20"] and 35<d["rsi"]<70: side="LONG"
-        elif d["price"]<d["sma20"] and 30<d["rsi"]<65: side="SHORT"
-        if not side: continue
-        score=(70-d["rsi"]) if side=="LONG" else (d["rsi"]-30)
-        cands.append((score,sym,d,side))
-    cands.sort(key=lambda x: x[0], reverse=True)
-    added=False
-    for _,sym,d,side in cands[:15]:
-        if len(state["trades"])>=max_open: break
-        if state["balance"]<per*0.9: break
-        t={"s":sym.replace("USDT",""),"sym":sym,"cap":per,"qty":per/d["price"],"entry":d["price"],"live":d["price"],"side":side,"rsi":d["rsi"],"pnl":0,"pct":0,"trend":d["trend4H"]}
-        state["trades"].append(t); recalc_balance(); added=True
-    return added
+    try:
+        data=requests.get("https://api.binance.com/api/v3/ticker/24hr",timeout=2).json()
+        have=set(t["sym"] for t in state["trades"])
+        added=0
+        for d in data:
+            if len(state["trades"])>=max_open: break
+            if state["balance"]<per*0.9: break
+            sym=d["symbol"]
+            if sym in have or not sym.endswith("USDT"): continue
+            if "UP" in sym or "DOWN" in sym or sym in ["BTCUSDT","ETHUSDT","BNBUSDT"]: continue
+            if sym in cooldown and time.time()-cooldown[sym]<10: continue
+            try: price=float(d["lastPrice"]); ch=float(d["priceChangePercent"]); vol=float(d["quoteVolume"])
+            except: continue
+            if price>15 or price<0.0000008 or vol<500000 or abs(ch)<0.2: continue
+            side="LONG" if ch>=0 else "SHORT"
+            t={"s":sym.replace("USDT",""),"sym":sym,"cap":per,"qty":per/price,"entry":price,"live":price,"side":side,"pnl":0,"pct":0}
+            state["trades"].append(t); have.add(sym); added+=1
+        recalc_balance()
+        return added>0
+    except: return False
 
 def worker():
-    time.sleep(2); cooldown.clear(); trends_cache.clear()
+    time.sleep(1); cooldown.clear()
     while True:
         try:
             per=state["per_trade"]; max_open=int(state["total_capital"]//per) if per>0 else 50
             while len(state["trades"])<max_open and state["balance"]>=per*0.9:
-                if not try_add_one(): break
+                if not try_add_fast(): break
             if state["trades"]:
-                pm=get_all_prices_fast()
+                try:
+                    pm={d["symbol"]: float(d["price"]) for d in requests.get("https://api.binance.com/api/v3/ticker/price",timeout=1).json()}
+                except: pm={}
                 for t in list(state["trades"]):
                     live=pm.get(t["sym"])
                     if not live: continue
@@ -125,7 +50,14 @@ def worker():
                     t["pct"]=round((live-t["entry"])/t["entry"]*100,3) if t["side"]=="LONG" else round((t["entry"]-live)/t["entry"]*100,3)
                     t["pnl"]=round(t["cap"]*t["pct"]/100,2)
                 state["unrealized"]=round(sum(x["pnl"] for x in state["trades"]),2)
-                if state["total_target"]>0.05 and state["unrealized"]>=state["total_target"]:
+                # ANTI-LOSS: لو نزل -5 اقفل اسوأ 5 صفقات
+                if state["unrealized"]<=-5.0:
+                    worst=sorted(state["trades"], key=lambda x: x["pnl"])[:5]
+                    for w in worst:
+                        state["realized"]=round(state["realized"]+w["pnl"],2); cooldown[w["sym"]]=time.time(); state["trades"].remove(w)
+                    recalc_balance()
+                # قفل ربح إجمالي صغير
+                if state["unrealized"]>=state["total_target"]:
                     for t in state["trades"]: cooldown[t["sym"]]=time.time()
                     state["realized"]=round(state["realized"]+state["unrealized"],2)
                     state["trades"]=[]; state["unrealized"]=0; state["cycles"]+=1; recalc_balance()
@@ -134,12 +66,13 @@ def worker():
                         if t["pnl"]>=state["TP"] or t["pnl"]<=state["SL"]:
                             state["realized"]=round(state["realized"]+t["pnl"],2); cooldown[t["sym"]]=time.time(); state["trades"].remove(t); recalc_balance()
             else:
-                if len(cooldown)>80: cooldown.clear(); trends_cache.clear()
+                if len(cooldown)>100: cooldown.clear()
         except: pass
-        time.sleep(0.3)
+        time.sleep(0.1)
+
 threading.Thread(target=worker,daemon=True).start()
 
-HTML="""<!DOCTYPE html><html dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>V65 TURBO 50x</title><link href="https://fonts.googleapis.com/css2?family=Cairo:wght@800;900&family=JetBrains+Mono:wght@800&display=swap" rel="stylesheet"><style>*{font-family:'Cairo'}body{background:radial-gradient(ellipse at top,#1e244d 0%,#07091a 70%);color:#fff;margin:0;padding:12px}.header{font-size:26px!important;font-weight:900!important;text-align:center;background:linear-gradient(90deg,#00ff88,#ffcc00);-webkit-background-clip:text;-webkit-text-fill-color:transparent}.sub{font-size:12px!important;color:#9aa0c5;text-align:center;font-weight:800;margin-bottom:12px}.ctrl{background:linear-gradient(145deg,#262a5a,#151833);border:2px solid #ffcc0055;border-radius:18px;padding:12px;text-align:center} input{background:#080a1e;color:#ffcc00;border:2.5px solid #ffcc00aa;border-radius:12px;padding:10px;font-size:18px!important;font-weight:900!important;text-align:center;direction:ltr;min-width:100px}.btn{padding:12px 18px!important;border-radius:12px!important;border:0;font-weight:900!important;font-size:15px!important;cursor:pointer}.btn-gold{background:linear-gradient(145deg,#ffcc00,#ff9800);color:#000}.btn-red{background:linear-gradient(145deg,#ff3d57,#c62828);color:#fff}.btn-blue{background:linear-gradient(145deg,#00e676,#00c853);color:#000}.dashboard{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:14px 0}.cardx{background:linear-gradient(145deg,#2a2e6a,#1a1c3f);border:2px solid #ffffff20;border-radius:20px;padding:14px;text-align:center}.cardx.gold{border-color:#ffcc00aa}.cardx.profit{border-color:#00ff88;box-shadow:0 0 30px #00ff8866;animation:pulse 1s infinite} @keyframes pulse{0%{box-shadow:0 0 15px #00ff8866}50%{box-shadow:0 0 35px #00ff88aa}100%{box-shadow:0 0 15px #00ff8866}}.lbl{color:#9aa0c5;font-size:11px!important;font-weight:800!important}.val{font-size:19px!important;font-weight:900!important;margin-top:6px}.table-wrap{background:linear-gradient(145deg,#1e2147,#151833);border-radius:20px;overflow:hidden;border:2px solid #ffffff18} table{width:100%;border-collapse:collapse} th{background:linear-gradient(145deg,#2a2d5a,#1e2040);color:#00ff88;padding:12px 6px!important;font-size:13px!important;font-weight:900!important;border-bottom:3px solid #00ff8855} td{padding:12px 6px!important;text-align:center;border-top:1px solid #ffffff12;font-size:16px!important;font-weight:900!important}.badge-long{background:linear-gradient(145deg,#00e676,#00c853);color:#000;padding:6px 12px!important;border-radius:25px;font-size:12px!important;font-weight:900!important;min-width:60px;display:inline-block}.badge-short{background:linear-gradient(145deg,#ff1744,#d50000);color:#fff;padding:6px 12px!important;border-radius:25px;font-size:12px!important;font-weight:900!important;min-width:60px;display:inline-block}.ltr{direction:ltr;display:inline-block;font-family:'JetBrains Mono',monospace!important;font-weight:800!important}.g{color:#00ff88}.r{color:#ff3d57}</style></head><body><div class="header">⚡ V65 TURBO - 50×100$ - هدف 1$</div><div class="sub">تحديث 0.3ث + فحص 1h فقط + TP 1.2$</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px"><div class="ctrl"><div style="color:#ffcc00;font-weight:900;margin-bottom:8px">💰 ثابت</div><div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap"><input id="totalInp" value="{{s.total_capital}}" style="width:110px"><button class="btn btn-gold" onclick="fetch('/set_total?v='+document.getElementById('totalInp').value).then(()=>location.reload())">تطبيق</button></div></div><div class="ctrl"><div style="color:#00ff88;font-weight:900;margin-bottom:8px">📦 صفقة</div><div style="display:flex;gap:8px;justify-content:center"><input id="perInp" value="{{s.per_trade}}" style="width:100px"><button class="btn btn-blue" onclick="fetch('/set_per?v='+document.getElementById('perInp').value).then(()=>location.reload())">تطبيق</button></div></div></div><div class="dashboard"><div class="cardx gold"><div class="lbl">💰 ثابت</div><div class="val" id="total"><span class="ltr">{{'%.0f'|format(s.total_capital)}}$</span></div></div><div class="cardx"><div class="lbl">🔓 حر</div><div class="val" id="bal"><span class="ltr">{{'%.0f'|format(s.balance)}}$</span></div></div><div class="cardx profit"><div class="lbl">💵 صافي ربح ✅</div><div class="val" id="real" style="color:#00ff88"><span class="ltr">{{'%+.2f'|format(s.realized)}}$</span></div></div><div class="cardx"><div class="lbl">📈 غير محققة</div><div class="val" id="unreal" style="color:{{'#00ff88' if s.unrealized>=0 else '#ff3d57'}}"><span class="ltr">{{'%+.2f'|format(s.unrealized)}}$</span></div></div><div class="cardx gold"><div class="lbl">💎 الإجمالي</div><div class="val" id="equity"><span class="ltr">{{'%.2f'|format(s.total_capital + s.realized + s.unrealized)}}$</span></div></div><div class="cardx"><div class="lbl">⚖️ L/S | دورات</div><div class="val" id="ls"><span class="ltr">{{s.trades|selectattr('side','equalto','LONG')|list|length}}/{{s.trades|selectattr('side','equalto','SHORT')|list|length}} | {{s.cycles}}</span></div></div></div><div style="display:flex;gap:10px;justify-content:center;margin-bottom:14px;flex-wrap:wrap"><div style="display:flex;gap:6px;align-items:center;background:#1e2147;padding:10px 14px;border-radius:14px;border:2px solid #ffffff15"><span style="color:#00ff88;font-weight:900">🎯 هدف</span><input id="t" style="width:70px" value="{{s.total_target}}"><button class="btn btn-blue" onclick="fetch('/set_target?v='+document.getElementById('t').value).then(()=>location.reload())">حفظ</button></div><button class="btn btn-red" onclick="fetch('/close_all').then(()=>location.reload())">🔒 قفل الكل</button><button class="btn btn-gold" onclick="fetch('/reset').then(()=>location.reload())">🔄 تصفير</button></div><div class="table-wrap"><table><tr><th>عملة</th><th>جانب</th><th>دخول</th><th>حالي</th><th>ربح $</th><th>%</th><th>×</th></tr>{% for t in s.trades %}<tr id="row-{{t.s}}"><td><b>{{t.s}}</b></td><td><span class="{{'badge-long' if t.side=='LONG' else 'badge-short'}}">{{t.side}}</span></td><td><span class="ltr">{{'%.4f'|format(t.entry)}}</span></td><td><span class="ltr live">{{'%.4f'|format(t.live)}}</span></td><td><span class="ltr pnl {{'g' if t.pnl>=0 else 'r'}}">{{'%+.2f'|format(t.pnl)}}$</span></td><td><span class="ltr pct {{'g' if t.pct>=0 else 'r'}}">{{'%+.2f'|format(t.pct)}}%</span></td><td><button style="background:#ffffff20;color:#fff;border:0;padding:6px 12px;border-radius:10px;font-weight:900" onclick="fetch('/close_one?s={{t.s}}').then(()=>location.reload())">✕</button></td></tr>{% endfor %}</table></div><script>function refresh(){fetch('/api').then(r=>r.json()).then(d=>{document.getElementById('total').innerHTML=`<span class="ltr">${d.total_capital.toFixed(0)}$</span>`;document.getElementById('bal').innerHTML=`<span class="ltr">${d.balance.toFixed(0)}$</span>`;document.getElementById('real').innerHTML=`<span class="ltr">${(d.realized>=0?'+':'')+d.realized.toFixed(2)}$</span>`;document.getElementById('unreal').innerHTML=`<span class="ltr">${(d.unrealized>=0?'+':'')+d.unrealized.toFixed(2)}$</span>`;document.getElementById('unreal').style.color=d.unrealized>=0?'#00ff88':'#ff3d57';document.getElementById('equity').innerHTML=`<span class="ltr">${(d.total_capital+d.realized+d.unrealized).toFixed(2)}$</span>`;let longs=d.trades.filter(t=>t.side=='LONG').length;let shorts=d.trades.length-longs;document.getElementById('ls').innerHTML=`<span class="ltr">${longs}/${shorts} | ${d.cycles}</span>`;d.trades.forEach(t=>{let row=document.getElementById('row-'+t.s);if(row){row.querySelector('.live').innerText=t.live.toFixed(4);row.querySelector('.pnl').innerText=(t.pnl>=0?'+':'')+t.pnl.toFixed(2)+'$';row.querySelector('.pnl').className='ltr pnl '+(t.pnl>=0?'g':'r');row.querySelector('.pct').innerText=(t.pct>=0?'+':'')+t.pct.toFixed(2)+'%';row.querySelector('.pct').className='ltr pct '+(t.pct>=0?'g':'r');}});if(d.trades.length!=document.querySelectorAll('[id^=row-]').length)location.reload();});}setInterval(refresh,300);refresh();</script></body></html>
+HTML="""<!DOCTYPE html><html dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>V67 ANTI-LOSS</title><link href="https://fonts.googleapis.com/css2?family=Cairo:wght@800;900&family=JetBrains+Mono:wght@800&display=swap" rel="stylesheet"><style>*{font-family:'Cairo'}body{background:radial-gradient(ellipse at top,#1e244d 0%,#07091a 70%);color:#fff;margin:0;padding:12px}.header{font-size:24px!important;font-weight:900!important;text-align:center;background:linear-gradient(90deg,#00ff88,#ffcc00);-webkit-background-clip:text;-webkit-text-fill-color:transparent}.sub{font-size:11px!important;color:#9aa0c5;text-align:center;font-weight:800;margin-bottom:12px}.ctrl{background:linear-gradient(145deg,#262a5a,#151833);border:2px solid #ffcc0055;border-radius:18px;padding:12px;text-align:center} input{background:#080a1e;color:#ffcc00;border:2.5px solid #ffcc00aa;border-radius:12px;padding:10px;font-size:18px!important;font-weight:900!important;text-align:center;direction:ltr;min-width:100px}.btn{padding:12px 18px!important;border-radius:12px!important;border:0;font-weight:900!important;font-size:15px!important;cursor:pointer}.btn-gold{background:linear-gradient(145deg,#ffcc00,#ff9800);color:#000}.btn-red{background:linear-gradient(145deg,#ff3d57,#c62828);color:#fff}.btn-blue{background:linear-gradient(145deg,#00e676,#00c853);color:#000}.dashboard{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:14px 0}.cardx{background:linear-gradient(145deg,#2a2e6a,#1a1c3f);border:2px solid #ffffff20;border-radius:20px;padding:14px;text-align:center}.cardx.gold{border-color:#ffcc00aa}.cardx.profit{border-color:#00ff88;box-shadow:0 0 30px #00ff8866}.lbl{color:#9aa0c5;font-size:11px!important;font-weight:800!important}.val{font-size:19px!important;font-weight:900!important;margin-top:6px}.table-wrap{background:linear-gradient(145deg,#1e2147,#151833);border-radius:20px;overflow:hidden;border:2px solid #ffffff18} table{width:100%;border-collapse:collapse} th{background:linear-gradient(145deg,#2a2d5a,#1e2040);color:#00ff88;padding:12px 6px!important;font-size:13px!important;font-weight:900!important;border-bottom:3px solid #00ff8855} td{padding:12px 6px!important;text-align:center;border-top:1px solid #ffffff12;font-size:16px!important;font-weight:900!important}.badge-long{background:linear-gradient(145deg,#00e676,#00c853);color:#000;padding:6px 12px!important;border-radius:25px;font-size:12px!important;font-weight:900!important;min-width:60px;display:inline-block}.badge-short{background:linear-gradient(145deg,#ff1744,#d50000);color:#fff;padding:6px 12px!important;border-radius:25px;font-size:12px!important;font-weight:900!important;min-width:60px;display:inline-block}.ltr{direction:ltr;display:inline-block;font-family:'JetBrains Mono',monospace!important;font-weight:800!important}.g{color:#00ff88}.r{color:#ff3d57}</style></head><body><div class="header">🛡️ V67 ANTI-LOSS - 50×100$</div><div class="sub">TP 0.35$ | SL -0.65$ | تحديث 0.1ث | هدف إجمالي 0.5$</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px"><div class="ctrl"><div style="color:#ffcc00;font-weight:900;margin-bottom:8px">💰 ثابت</div><div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap"><input id="totalInp" value="{{s.total_capital}}" style="width:110px"><button class="btn btn-gold" onclick="fetch('/set_total?v='+document.getElementById('totalInp').value).then(()=>location.reload())">تطبيق</button></div></div><div class="ctrl"><div style="color:#00ff88;font-weight:900;margin-bottom:8px">📦 صفقة</div><div style="display:flex;gap:8px;justify-content:center"><input id="perInp" value="{{s.per_trade}}" style="width:100px"><button class="btn btn-blue" onclick="fetch('/set_per?v='+document.getElementById('perInp').value).then(()=>location.reload())">تطبيق</button></div></div></div><div class="dashboard"><div class="cardx gold"><div class="lbl">💰 ثابت</div><div class="val" id="total"><span class="ltr">{{'%.0f'|format(s.total_capital)}}$</span></div></div><div class="cardx"><div class="lbl">🔓 حر</div><div class="val" id="bal"><span class="ltr">{{'%.0f'|format(s.balance)}}$</span></div></div><div class="cardx profit"><div class="lbl">💵 صافي ربح ✅</div><div class="val" id="real" style="color:#00ff88"><span class="ltr">{{'%+.2f'|format(s.realized)}}$</span></div></div><div class="cardx"><div class="lbl">📈 غير محققة</div><div class="val" id="unreal" style="color:{{'#00ff88' if s.unrealized>=0 else '#ff3d57'}}"><span class="ltr">{{'%+.2f'|format(s.unrealized)}}$</span></div></div><div class="cardx gold"><div class="lbl">💎 الإجمالي</div><div class="val" id="equity"><span class="ltr">{{'%.2f'|format(s.total_capital + s.realized + s.unrealized)}}$</span></div></div><div class="cardx"><div class="lbl">⚖️ L/S | دورات</div><div class="val" id="ls"><span class="ltr">{{s.trades|selectattr('side','equalto','LONG')|list|length}}/{{s.trades|selectattr('side','equalto','SHORT')|list|length}} | {{s.cycles}}</span></div></div></div><div style="display:flex;gap:10px;justify-content:center;margin-bottom:14px;flex-wrap:wrap"><div style="display:flex;gap:6px;align-items:center;background:#1e2147;padding:10px 14px;border-radius:14px;border:2px solid #ffffff15"><span style="color:#00ff88;font-weight:900">🎯 هدف</span><input id="t" style="width:70px" value="{{s.total_target}}"><button class="btn btn-blue" onclick="fetch('/set_target?v='+document.getElementById('t').value).then(()=>location.reload())">حفظ</button></div><button class="btn btn-red" onclick="fetch('/close_all').then(()=>location.reload())">🔒 قفل الكل</button><button class="btn btn-gold" onclick="fetch('/reset').then(()=>location.reload())">🔄 تصفير</button></div><div class="table-wrap"><table><tr><th>عملة</th><th>جانب</th><th>دخول</th><th>حالي</th><th>ربح $</th><th>%</th><th>×</th></tr>{% for t in s.trades %}<tr id="row-{{t.s}}"><td><b>{{t.s}}</b></td><td><span class="{{'badge-long' if t.side=='LONG' else 'badge-short'}}">{{t.side}}</span></td><td><span class="ltr">{{'%.4f'|format(t.entry)}}</span></td><td><span class="ltr live">{{'%.4f'|format(t.live)}}</span></td><td><span class="ltr pnl {{'g' if t.pnl>=0 else 'r'}}">{{'%+.2f'|format(t.pnl)}}$</span></td><td><span class="ltr pct {{'g' if t.pct>=0 else 'r'}}">{{'%+.2f'|format(t.pct)}}%</span></td><td><button style="background:#ffffff20;color:#fff;border:0;padding:6px 12px;border-radius:10px;font-weight:900" onclick="fetch('/close_one?s={{t.s}}').then(()=>location.reload())">✕</button></td></tr>{% endfor %}</table></div><script>function refresh(){fetch('/api').then(r=>r.json()).then(d=>{document.getElementById('total').innerHTML=`<span class="ltr">${d.total_capital.toFixed(0)}$</span>`;document.getElementById('bal').innerHTML=`<span class="ltr">${d.balance.toFixed(0)}$</span>`;document.getElementById('real').innerHTML=`<span class="ltr">${(d.realized>=0?'+':'')+d.realized.toFixed(2)}$</span>`;document.getElementById('unreal').innerHTML=`<span class="ltr">${(d.unrealized>=0?'+':'')+d.unrealized.toFixed(2)}$</span>`;document.getElementById('unreal').style.color=d.unrealized>=0?'#00ff88':'#ff3d57';document.getElementById('equity').innerHTML=`<span class="ltr">${(d.total_capital+d.realized+d.unrealized).toFixed(2)}$</span>`;let longs=d.trades.filter(t=>t.side=='LONG').length;let shorts=d.trades.length-longs;document.getElementById('ls').innerHTML=`<span class="ltr">${longs}/${shorts} | ${d.cycles}</span>`;d.trades.forEach(t=>{let row=document.getElementById('row-'+t.s);if(row){row.querySelector('.live').innerText=t.live.toFixed(4);row.querySelector('.pnl').innerText=(t.pnl>=0?'+':'')+t.pnl.toFixed(2)+'$';row.querySelector('.pnl').className='ltr pnl '+(t.pnl>=0?'g':'r');row.querySelector('.pct').innerText=(t.pct>=0?'+':'')+t.pct.toFixed(2)+'%';row.querySelector('.pct').className='ltr pct '+(t.pct>=0?'g':'r');}});if(d.trades.length!=document.querySelectorAll('[id^=row-]').length)location.reload();});}setInterval(refresh,100);refresh();</script></body></html>
 """
 @app.route('/')
 def home(): return render_template_string(HTML, s=state)
@@ -161,7 +94,7 @@ def set_tar():
     except: pass
     return "OK"
 @app.route('/reset')
-def reset(): state["realized"]=0; state["unrealized"]=0; state["trades"]=[]; state["cycles"]=0; state["balance"]=state["total_capital"]; cooldown.clear(); trends_cache.clear(); return "OK"
+def reset(): state["realized"]=0; state["unrealized"]=0; state["trades"]=[]; state["cycles"]=0; state["balance"]=state["total_capital"]; cooldown.clear(); return "OK"
 @app.route('/close_all')
 def close_all():
     for t in state["trades"]: cooldown[t["sym"]]=time.time()
