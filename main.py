@@ -1,6 +1,5 @@
 from flask import Flask, render_template_string, request, jsonify
 import os, threading, time, requests
-from concurrent.futures import ThreadPoolExecutor
 app = Flask(__name__)
 cooldown = {}
 
@@ -29,7 +28,7 @@ def get_volatile_coins(limit=100):
             cands.append((sym,abs(ch)))
         cands.sort(key=lambda x: x[1], reverse=True)
         return [s for s,_ in cands[:limit]]
-    except: return ["FFUSDT","QKCUSDT","FORMUSDT","PENGUUSDT","XPLUSDT","DOGSUSDT","WLDUSDT","ENAUSDT","AEROUSDT","ICPUSDT"]
+    except: return ["FFUSDT","QKCUSDT","FORMUSDT","TRUMPUSDT","XPLUSDT","DOGSUSDT","WLDUSDT","ENAUSDT","AEROUSDT","ICPUSDT"]
 
 def get_data(sym):
     try:
@@ -41,9 +40,11 @@ def get_data(sym):
         return {"price":price,"ema":ema,"sma":sma,"rsi":round(get_rsi(closes),1)}
     except: return None
 
-def get_price_fast(sym):
-    try: return float(requests.get(f"https://api.binance.com/api/v3/ticker/price?symbol={sym}",timeout=2).json()["price"])
-    except: return None
+def get_all_prices_fast():
+    try:
+        data=requests.get("https://api.binance.com/api/v3/ticker/price",timeout=3).json()
+        return {d["symbol"]: float(d["price"]) for d in data}
+    except: return {}
 
 state={"total_capital":5000.0,"per_trade":500.0,"balance":5000.0,"realized":0.0,"unrealized":0.0,"total_target":5.0,"trades":[],"TP":5.0,"SL":-15.0}
 
@@ -78,53 +79,54 @@ def worker():
                 if not try_add_one(): break
                 time.sleep(0.2)
             if state["trades"]:
-                with ThreadPoolExecutor(max_workers=10) as ex:
-                    pm=dict(ex.map(lambda t: (t["sym"], get_price_fast(t["sym"])), state["trades"]))
+                pm=get_all_prices_fast()
                 for t in list(state["trades"]):
                     live=pm.get(t["sym"])
                     if not live: continue
                     t["live"]=live
-                    t["pct"]=round((live-t["entry"])/t["entry"]*100,2) if t["side"]=="LONG" else round((t["entry"]-live)/t["entry"]*100,2)
+                    t["pct"]=round((live-t["entry"])/t["entry"]*100,3) if t["side"]=="LONG" else round((t["entry"]-live)/t["entry"]*100,3)
                     t["pnl"]=round(t["cap"]*t["pct"]/100,2)
                 state["unrealized"]=round(sum(x["pnl"] for x in state["trades"]),2)
-                # قفل عند الهدف
                 if state["total_target"]>0.1 and state["unrealized"]>=state["total_target"]:
                     for t in list(state["trades"]):
                         state["balance"]=round(state["balance"]+t["cap"]+t["pnl"],2); state["realized"]=round(state["realized"]+t["pnl"],2); cooldown[t["sym"]]=time.time()
-                    state["trades"]=[]; state["unrealized"]=0; time.sleep(0.5)
+                    state["trades"]=[]; state["unrealized"]=0; time.sleep(0.3)
+                    for _ in range(max_open):
+                        if not try_add_one(): break
+                        time.sleep(0.2)
                 else:
                     for t in list(state["trades"]):
                         if t["pnl"]>=state["TP"] or t["pnl"]<=state["SL"]:
                             state["balance"]=round(state["balance"]+t["cap"]+t["pnl"],2); state["realized"]=round(state["realized"]+t["pnl"],2); cooldown[t["sym"]]=time.time(); state["trades"].remove(t); try_add_one()
                 state["unrealized"]=round(sum(x["pnl"] for x in state["trades"]),2)
         except: pass
-        time.sleep(1.5)
+        time.sleep(1)
 
 threading.Thread(target=worker,daemon=True).start()
 
 HTML="""
 <!DOCTYPE html><html dir="rtl"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>V56 ULTRA</title>
+<title>V56.1 TURBO</title>
 <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@800;900&family=JetBrains+Mono:wght@800&display=swap" rel="stylesheet">
 <style>
-*{font-family:'Cairo',Tahoma; }
+*{font-family:'Cairo',Tahoma}
 body{background:radial-gradient(ellipse at top,#1e244d 0%,#07091a 70%);color:#fff;margin:0;padding:12px;min-height:100vh}
-.header{font-size:30px!important;font-weight:900!important;text-align:center;background:linear-gradient(90deg,#ffcc00,#ff9800,#ffcc00);-webkit-background-clip:text;-webkit-text-fill-color:transparent;filter:drop-shadow(0 0 20px #ffcc0088);letter-spacing:1px}
+.header{font-size:30px!important;font-weight:900!important;text-align:center;background:linear-gradient(90deg,#ffcc00,#ff9800,#ffcc00);-webkit-background-clip:text;-webkit-text-fill-color:transparent;filter:drop-shadow(0 0 20px #ffcc0088)}
 .sub{font-size:14px!important;color:#00ff88;text-align:center;font-weight:800;margin-bottom:12px}
 .top-controls{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
 .ctrl{background:linear-gradient(145deg,#262a5a,#151833);border:2px solid #ffcc0055;border-radius:18px;padding:12px;text-align:center;box-shadow:0 8px 25px rgba(0,0,0,0.5)}
 .ctrl-title{color:#ffcc00;font-size:14px!important;font-weight:900!important;margin-bottom:8px}
 select,input{background:#080a1e;color:#ffcc00;border:2.5px solid #ffcc00aa;border-radius:12px;padding:10px;font-size:18px!important;font-weight:900!important;text-align:center;direction:ltr;min-width:100px}
-.btn{padding:12px 18px!important;border-radius:12px!important;border:0;font-weight:900!important;font-size:15px!important;cursor:pointer;box-shadow:0 6px 15px rgba(0,0,0,0.4)}
+.btn{padding:12px 18px!important;border-radius:12px!important;border:0;font-weight:900!important;font-size:15px!important;cursor:pointer}
 .btn-gold{background:linear-gradient(145deg,#ffcc00,#ff9800);color:#000}.btn-red{background:linear-gradient(145deg,#ff3d57,#c62828);color:#fff}.btn-blue{background:linear-gradient(145deg,#3d5afe,#2a3eb1);color:#fff}
 .dashboard{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:14px 0}
-.cardx{background:linear-gradient(145deg,#2a2e6a,#1a1c3f);border:2px solid #ffffff20;border-radius:20px;padding:14px;text-align:center;box-shadow:0 10px 30px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.15)}
+.cardx{background:linear-gradient(145deg,#2a2e6a,#1a1c3f);border:2px solid #ffffff20;border-radius:20px;padding:14px;text-align:center;box-shadow:0 10px 30px rgba(0,0,0,0.5)}
 .cardx.gold{border-color:#ffcc00aa;box-shadow:0 0 25px #ffcc0033,0 10px 30px rgba(0,0,0,0.5)}
 .lbl{color:#9aa0c5;font-size:13px!important;font-weight:800!important}.val{font-size:22px!important;font-weight:900!important;margin-top:6px}
 .table-wrap{background:linear-gradient(145deg,#1e2147,#151833);border-radius:20px;overflow:hidden;border:2px solid #ffffff18;box-shadow:0 15px 40px rgba(0,0,0,0.6)}
 table{width:100%;border-collapse:collapse}
-th{background:linear-gradient(145deg,#2a2d5a,#1e2040);color:#ffcc00;padding:16px 6px!important;font-size:15px!important;font-weight:900!important;border-bottom:3px solid #ffcc0055;letter-spacing:0.5px}
+th{background:linear-gradient(145deg,#2a2d5a,#1e2040);color:#ffcc00;padding:16px 6px!important;font-size:15px!important;font-weight:900!important;border-bottom:3px solid #ffcc0055}
 td{padding:16px 6px!important;text-align:center;border-top:1px solid #ffffff12;font-size:18px!important;font-weight:900!important}
 tr:hover{background:rgba(255,204,0,0.08)}
 .badge-long{background:linear-gradient(145deg,#00e676,#00c853);color:#000;padding:8px 18px!important;border-radius:25px;font-size:14px!important;font-weight:900!important;box-shadow:0 0 20px #00e676aa;min-width:75px;display:inline-block}
@@ -132,9 +134,8 @@ tr:hover{background:rgba(255,204,0,0.08)}
 .ltr{direction:ltr;display:inline-block;font-family:'JetBrains Mono',monospace!important;font-weight:800!important;font-size:18px!important}
 .g{color:#00ff88;text-shadow:0 0 10px #00ff8888}.r{color:#ff3d57;text-shadow:0 0 10px #ff3d5788}
 </style></head><body>
-<div class="header">💎 V56 ULTRA LUXURY - خطوط فخمة ضخمة</div>
-<div class="sub">⚡ تحديث لحظي كل 1.5 ثانية - يقفل تلقائي عند +5$</div>
-
+<div class="header">💎 V56.1 TURBO - فخم + سريع 0.8 ثانية</div>
+<div class="sub">⚡ LIVE TURBO - يقفل تلقائي عند الهدف</div>
 <div class="top-controls">
   <div class="ctrl"><div class="ctrl-title">💰 إجمالي رأس المال</div><div style="display:flex;gap:8px;justify-content:center;align-items:center;flex-wrap:wrap">
     <select onchange="document.getElementById('totalInp').value=this.value"><option value="500">500$</option><option value="1000">1000$</option><option value="2000">2000$</option><option value="5000" selected>5000$</option><option value="10000">10000$</option><option value="50000">50000$</option><option value="100000">100000$</option></select>
@@ -145,7 +146,6 @@ tr:hover{background:rgba(255,204,0,0.08)}
     <input id="perInp" value="{{s.per_trade}}" style="width:100px"><button class="btn btn-blue" onclick="fetch('/set_per?v='+document.getElementById('perInp').value).then(()=>location.reload())">تطبيق</button>
   </div></div>
 </div>
-
 <div class="dashboard">
   <div class="cardx gold"><div class="lbl">💰 رصيد حر</div><div class="val" id="bal" style="color:#ffcc00"><span class="ltr">{{'%.2f'|format(s.balance)}}$</span></div></div>
   <div class="cardx"><div class="lbl">🔒 محجوز</div><div class="val" id="locked" style="color:#ff9800"><span class="ltr">{{'%.0f'|format(s.trades|length * s.per_trade)}}$</span></div></div>
@@ -154,20 +154,18 @@ tr:hover{background:rgba(255,204,0,0.08)}
   <div class="cardx"><div class="lbl">✅ محقق</div><div class="val" id="real"><span class="ltr">{{'%+.2f'|format(s.realized)}}$</span></div></div>
   <div class="cardx gold"><div class="lbl">⚖️ LONG / SHORT</div><div class="val" id="ls" style="font-size:20px!important"><span class="ltr">{{s.trades|selectattr('side','equalto','LONG')|list|length}} / {{s.trades|selectattr('side','equalto','SHORT')|list|length}}</span></div></div>
 </div>
-
 <div style="display:flex;gap:10px;justify-content:center;margin-bottom:14px;flex-wrap:wrap">
   <div style="display:flex;gap:6px;align-items:center;background:#1e2147;padding:10px 14px;border-radius:14px;border:2px solid #ffffff15"><span style="color:#ffcc00;font-weight:900;font-size:15px">🎯 هدف</span><input id="t" style="width:80px" value="{{s.total_target}}"><button class="btn btn-blue" onclick="fetch('/set_target?v='+document.getElementById('t').value).then(()=>location.reload())">حفظ</button></div>
   <button class="btn btn-red" onclick="fetch('/close_all').then(()=>location.reload())">🔒 قفل الكل</button>
   <button class="btn btn-gold" onclick="if(confirm('تصفير؟'))fetch('/reset').then(()=>location.reload())">🔄 تصفير</button>
 </div>
-
 <div class="table-wrap"><table id="tradesTable"><tr><th>العملة</th><th>الجانب</th><th>RSI</th><th>💰 رأس مال</th><th>📦 مبلغ</th><th>دخول</th><th>حالي</th><th>ربح $</th><th>%</th><th>×</th></tr>
 {% for t in s.trades %}
 <tr id="row-{{t.s}}">
 <td><b style="font-size:20px!important">{{t.s}}</b></td>
 <td><span class="{{'badge-long' if t.side=='LONG' else 'badge-short'}}">{{t.side}}</span></td>
 <td><span class="ltr">{{t.rsi}}</span></td>
-<td><span class="ltr" style="color:#ffcc00">$500</span></td>
+<td><span class="ltr" style="color:#ffcc00">${{t.cap|int}}</span></td>
 <td><span class="ltr" style="color:#7ec8ff">{{'%.1f'|format(t.qty) if t.qty<1000 else '%.1fK'|format(t.qty/1000)}}</span></td>
 <td><span class="ltr">{{'%.4f'|format(t.entry)}}</span></td>
 <td><span class="ltr live">{{'%.4f'|format(t.live)}}</span></td>
@@ -177,7 +175,6 @@ tr:hover{background:rgba(255,204,0,0.08)}
 </tr>
 {% endfor %}
 </table></div>
-
 <script>
 function refresh(){
  fetch('/api').then(r=>r.json()).then(d=>{
@@ -195,14 +192,15 @@ function refresh(){
       row.querySelector('.live').innerText=t.live.toFixed(4);
       row.querySelector('.pnl').innerText=(t.pnl>=0?'+':'')+t.pnl.toFixed(2)+'$';
       row.querySelector('.pnl').className='ltr pnl '+(t.pnl>=0?'g':'r');
-      row.querySelector('.pct').innerText=(t.pct>=0?'+':'')+t.pct.toFixed(2)+'%';
+      row.querySelector('.pct').innerText=(t.pct>=0?'+':'')+t.pct.toFixed(3)+'%';
       row.querySelector('.pct').className='ltr pct '+(t.pct>=0?'g':'r');
     }
   });
   if(d.trades.length!= document.querySelectorAll('[id^=row-]').length) location.reload();
  });
 }
-setInterval(refresh,1500); refresh();
+setInterval(refresh,800);
+refresh();
 </script>
 </body></html>
 """
