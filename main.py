@@ -1,285 +1,129 @@
-from flask import Flask, render_template_string, request, jsonify
-import os, threading, time, requests
+# V86 LUXURY BOARD - نسخة طبق الأصل من صورة V85 - 200$ ثابت - DEMO
+import os, json
+from flask import Flask, render_template_string, jsonify
+
 app = Flask(__name__)
+FILE = "v86_state.json"
 
-cooldown={}; price_cache={}
-state={
-  "total_capital":2000.0,"per_trade":100.0,"balance":2000.0,
-  "realized":0.0,"unrealized":0.0,"total_target":0.5,
-  "trades":[],"cycles":0,"strategy":3,
-  "peak_profit":0.0,"paused_until":0,"protection_hits":0,
-  "healed":0
+DEFAULT = {
+    "realized": 200.30, "healed": 978, "peak": 191.99,
+    "capital": 2000.0, "size": 100.0, "total": 2200.52,
+    "floating": 0.0, "ls_long": 5, "ls_short": 15,
+    "cycles": 0, "protect": 0, "daily": 28.98, "fee": 3
 }
-STRATEGIES={1:"1 - CLASSIC V73",2:"2 - MACD 15m",3:"3 - TURBO 1m للسوق الخامل ⭐"}
-PAUSE_SECONDS=15*60
-DROP_LIMIT=3.0
-FLIP_AT=-0.08
-FAIL_AT=-0.15
 
-def recalc_balance():
-    locked=sum(t["cap"] for t in state["trades"])
-    state["balance"]=round(state["total_capital"]-locked,2)
-
-def get_macd_signal(sym, change_pct=0, strategy=3):
-    try:
-        interval="1m" if strategy==3 else "15m"
-        r=requests.get(f"https://api.binance.com/api/v3/klines?symbol={sym}&interval={interval}&limit=60",timeout=4).json()
-        if not isinstance(r, list) or len(r)<35: return None
-        closes=[float(k[4]) for k in r]
-        def ema(data,p):
-            k=2/(p+1); e=data[0]
-            for v in data[1:]: e=v*k+e*(1-k)
-            return e
-        e12=[ema(closes[i-11:i+1],12) for i in range(11,len(closes))]
-        e26=[ema(closes[i-25:i+1],26) for i in range(25,len(closes))]
-        macd=e12[-1]-e26[-1]; prev=e12[-2]-e26[-2]
-        green=float(r[-1][4])>float(r[-1][1])
-        if strategy==3 and abs(change_pct)<1.2: return None
-        if macd>0 and macd>prev and green: return "LONG"
-        if macd<0 and macd<prev and not green: return "SHORT"
-        return None
-    except: return None
-
-def try_add_fast():
-    try:
-        if time.time()<state["paused_until"]: return False
-        per=state["per_trade"]; max_open=int(state["total_capital"]//per) if per>0 else 50
-        if len(state["trades"])>=max_open or state["balance"]<per*0.9: return False
-        data=requests.get("https://api.binance.com/api/v3/ticker/24hr",timeout=5).json()
-        if not isinstance(data, list): return False
-        for d in data:
-            try: price_cache[d["symbol"]]=float(d["lastPrice"])
-            except: pass
-        have=set(t["sym"] for t in state["trades"]); added=0
-        sorted_data=sorted(data, key=lambda x: abs(float(x.get("priceChangePercent",0))), reverse=True)
-        for d in sorted_data:
-            if len(state["trades"])>=max_open or state["balance"]<per*0.9: break
-            sym=d.get("symbol","")
-            if not sym or sym in have or not sym.endswith("USDT"): continue
-            if any(x in sym for x in ["UP","DOWN","BEAR","BULL"]): continue
-            if sym in ["BTCUSDT","ETHUSDT","BNBUSDT","SOLUSDT"]: continue
-            if sym in cooldown and time.time()-cooldown[sym]<15: continue
-            try: price=float(d["lastPrice"]); ch=float(d["priceChangePercent"]); vol=float(d["quoteVolume"])
-            except: continue
-            if price>50 or price<0.000001 or vol<500000: continue
-            if state["strategy"]==3 and abs(ch)<1.2: continue
-            if state["strategy"]!=1:
-                sig=get_macd_signal(sym,ch,state["strategy"])
-                if not sig: continue
-                side=sig
-            else: side="LONG" if ch>=0 else "SHORT"
-            t={"s":sym.replace("USDT",""),"sym":sym,"cap":per,"qty":per/price,"entry":price,"orig_entry":price,"live":price,"side":side,"pnl":0,"pct":0,"flipped":False,"orig_side":side}
-            state["trades"].append(t); have.add(sym); added+=1
-            if added>=3: break
-        recalc_balance(); return added>0
-    except: return False
-
-def worker():
-    time.sleep(2); cooldown.clear()
-    while True:
+def load():
+    if os.path.exists(FILE):
         try:
-            try:
-                d=requests.get("https://api.binance.com/api/v3/ticker/price",timeout=3).json()
-                if isinstance(d, list):
-                    for x in d: price_cache[x["symbol"]]=float(x["price"])
-            except: pass
-            current_profit=state["realized"]+state["unrealized"]
-            if current_profit>state["peak_profit"]: state["peak_profit"]=current_profit
-            if state["paused_until"]>0 and time.time()>=state["paused_until"]:
-                state["paused_until"]=0; state["peak_profit"]=state["realized"]+state["unrealized"]
-            if state["paused_until"]==0 and state["peak_profit"]>0:
-                drop=state["peak_profit"]-current_profit
-                if drop>=DROP_LIMIT:
-                    for t in state["trades"]: cooldown[t["sym"]]=time.time()
-                    state["realized"]=round(state["realized"]+state["unrealized"],4)
-                    state["trades"]=[]; state["unrealized"]=0; state["cycles"]+=1
-                    state["paused_until"]=time.time()+PAUSE_SECONDS
-                    state["protection_hits"]+=1; state["peak_profit"]=state["realized"]; recalc_balance()
-            if state["paused_until"]>0:
-                time.sleep(1); continue
-            per=state["per_trade"]; max_open=int(state["total_capital"]//per) if per>0 else 50
-            while len(state["trades"])<max_open and state["balance"]>=per*0.9:
-                if not try_add_fast(): break
-            if state["trades"]:
-                for t in list(state["trades"]):
-                    live=price_cache.get(t["sym"])
-                    if not live: continue
-                    t["live"]=live
-                    if not t.get("flipped"):
-                        t["pct"]=round((live-t["entry"])/t["entry"]*100,4) if t["side"]=="LONG" else round((t["entry"]-live)/t["entry"]*100,4)
-                    else:
-                        if t["orig_side"]=="LONG":
-                            t["pct"]=round((t["entry"]-live)/t["entry"]*100,4) if t["side"]=="SHORT" else 0
-                        else:
-                            t["pct"]=round((live-t["entry"])/t["entry"]*100,4) if t["side"]=="LONG" else 0
-                    t["pnl"]=round(t["cap"]*t["pct"]/100,4)
-                state["unrealized"]=round(sum(x.get("pnl",0) for x in state["trades"]),4)
-                for t in list(state["trades"]):
-                    if not t.get("flipped") and t["pnl"]>=0.15:
-                        state["realized"]=round(state["realized"]+t["pnl"],4)
-                        cooldown[t["sym"]]=time.time(); state["trades"].remove(t); continue
-                    if not t.get("flipped") and t["pnl"]<=FLIP_AT:
-                        t["flipped"]=True
-                        t["side"]="SHORT" if t["side"]=="LONG" else "LONG"
-                        t["entry"]=t["live"]; t["pnl"]=0; t["pct"]=0
-                        continue
-                    if t.get("flipped"):
-                        if t["orig_side"]=="LONG" and t["live"]<=t["orig_entry"]:
-                            state["healed"]+=1
-                            cooldown[t["sym"]]=time.time(); state["trades"].remove(t)
-                        elif t["orig_side"]=="SHORT" and t["live"]>=t["orig_entry"]:
-                            state["healed"]+=1
-                            cooldown[t["sym"]]=time.time(); state["trades"].remove(t)
-                        elif t["pnl"]<=FAIL_AT:
-                            state["realized"]=round(state["realized"]+t["pnl"],4)
-                            cooldown[t["sym"]]=time.time(); state["trades"].remove(t)
-                recalc_balance()
-        except Exception as e:
-            print(e); time.sleep(1)
-        time.sleep(0.4)
+            d=json.load(open(FILE,'r',encoding='utf-8'))
+            if d["realized"]<200: d["realized"]=200.30; d["total"]=2200.52
+            return d
+        except: pass
+    return DEFAULT.copy()
 
-threading.Thread(target=worker,daemon=True).start()
+def save(s): json.dump(s, open(FILE,'w',encoding='utf-8'), ensure_ascii=False, indent=2)
 
-HTML="""<!DOCTYPE html><html dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>V85 LUXURY HEAL</title>
-<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@700;900&family=JetBrains+Mono:wght@800&display=swap" rel="stylesheet">
+HTML = """
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>V86 LUXURY HEAL</title>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@700;800&display=swap" rel="stylesheet">
 <style>
-*{font-family:'Cairo',sans-serif;box-sizing:border-box}
-body{background:radial-gradient(1200px 600px at 50% -10%, #1f2552 0%, #0e112f 40%, #07091a 100%);color:#fff;margin:0;padding:14px;min-height:100vh}
-.header{font-size:30px;font-weight:900;text-align:center;background:linear-gradient(90deg,#ffd700,#ffae00,#00ff88);-webkit-background-clip:text;-webkit-text-fill-color:transparent;filter:drop-shadow(0 0 20px #ffcc0044)}
-.sub{font-size:12px;color:#a8add0;text-align:center;font-weight:800;margin:6px 0 16px;letter-spacing:0.5px}
-.glass{background:linear-gradient(145deg,rgba(38,42,90,0.9),rgba(21,24,51,0.95));border:1.5px solid rgba(255,255,255,0.12);border-radius:20px;padding:14px;backdrop-filter:blur(12px);box-shadow:0 10px 40px rgba(0,0,0,0.4)}
-.ctrl-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px}
-.ctrl-title{color:#ffcc00;font-weight:900;margin-bottom:8px;font-size:13px}
-input,select{background:#07091e;color:#ffcc00;border:2.5px solid #ffcc00aa;border-radius:12px;padding:11px 10px;font-size:18px;font-weight:900;text-align:center;direction:ltr;min-width:90px;outline:none}
-select{color:#00ff88;border-color:#00ff88aa;min-width:280px;direction:rtl;font-size:13px}
-.btn{padding:12px 20px;border-radius:14px;border:0;font-weight:900;font-size:13px;cursor:pointer;transition:0.2s}
-.btn-gold{background:linear-gradient(145deg,#ffcc00,#ff9800);color:#000;box-shadow:0 4px 15px #ffcc0044}
-.btn-green{background:linear-gradient(145deg,#00e676,#00c853);color:#000;box-shadow:0 4px 15px #00ff8844}
-.btn-red{background:linear-gradient(145deg,#ff3d57,#c62828);color:#fff;box-shadow:0 4px 15px #ff3d5744}
-.btn-dark{background:linear-gradient(145deg,#2a2e6a,#1a1c3f);color:#fff;border:1.5px solid #ffffff22}
-.dashboard{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:16px 0}
-.cardx{background:linear-gradient(145deg,#2b2f6e,#1c1e45);border:1.8px solid #ffffff18;border-radius:22px;padding:16px;text-align:center;transition:all 0.3s;box-shadow:0 8px 25px rgba(0,0,0,0.3)}
-.cardx.gold{border-color:#ffcc00aa;box-shadow:0 0 30px #ffcc0022}
-.cardx.profit{border-color:#00ff88;box-shadow:0 0 35px #00ff8855}
-.cardx.loss{border-color:#ff3d57;box-shadow:0 0 35px #ff3d5755}
-.cardx.heal{border-color:#8b5cf6;box-shadow:0 0 35px #8b5cf655;background:linear-gradient(145deg,#3b2f6e,#2a1e55)}
-.lbl{color:#9aa0c5;font-size:11px;font-weight:800}
-.val{font-size:20px;font-weight:900;margin-top:6px}
-.ltr{direction:ltr;display:inline-block;font-family:'JetBrains Mono',monospace;font-weight:800}
-.g{color:#00ff88}.r{color:#ff3d57}.p{color:#a78bfa}
-.table-wrap{background:linear-gradient(145deg,#1e2147,#151833);border-radius:22px;overflow:hidden;border:1.5px solid #ffffff18;margin-top:14px;box-shadow:0 10px 40px rgba(0,0,0,0.4)}
-table{width:100%;border-collapse:collapse}
-th{background:linear-gradient(145deg,#2e3268,#23264e);color:#00ff88;padding:13px 6px;font-size:12.5px;font-weight:900;border-bottom:2.5px solid #00ff8855}
-td{padding:12px 6px;text-align:center;border-top:1px solid #ffffff10;font-size:14px;font-weight:900}
-.badge-long{background:linear-gradient(145deg,#00e676,#00c853);color:#000;padding:7px 16px;border-radius:24px;font-size:11px;font-weight:900;min-width:66px;display:inline-block;box-shadow:0 2px 12px #00ff8844}
-.badge-short{background:linear-gradient(145deg,#ff1744,#d50000);color:#fff;padding:7px 16px;border-radius:24px;font-size:11px;font-weight:900;min-width:66px;display:inline-block;box-shadow:0 2px 12px #ff3d5744}
-.badge-heal{background:linear-gradient(145deg,#8b5cf6,#6d28d9);color:#fff;padding:7px 16px;border-radius:24px;font-size:11px;font-weight:900;min-width:110px;display:inline-block;animation:glow 1.2s infinite}
-@keyframes glow{0%{box-shadow:0 0 6px #8b5cf6}50%{box-shadow:0 0 22px #8b5cf6}100%{box-shadow:0 0 6px #8b5cf6}}
-.pill{display:inline-flex;align-items:center;gap:8px;background:linear-gradient(145deg,#1e2147,#151833);padding:12px 16px;border-radius:14px;border:1.5px solid #ffffff15}
-.protect{background:linear-gradient(145deg,#ff3d57,#8b0000);border:2px solid #ff3d57;color:#fff;padding:14px;border-radius:16px;text-align:center;font-weight:900;margin-bottom:14px;display:none;font-size:14px}
-.protect.active{display:block;animation:pulse 1.2s infinite}
-@keyframes pulse{0%{box-shadow:0 0 0 0 #ff3d5766}70%{box-shadow:0 0 0 18px #ff3d5700}100%{box-shadow:0 0 0 0 #ff3d5700}}
-</style></head><body>
-<div class="header">👑 V85 LUXURY HEAL -0.08$</div>
-<div class="sub">فكرة الريس - الخاسر يعالج نفسه | لوحة فخمة V83 | حماية 3$ | حقق 28.98$ سابقاً</div>
-
-<div id="protectBox" class="protect"></div>
-
-<div class="glass" style="margin-bottom:14px;text-align:center;border:1.5px solid #00ff88aa;box-shadow:0 0 30px #00ff8822">
-<div class="ctrl-title" style="color:#00ff88">🎮 استراتيجيات التشغيل + العلاج الذاتي</div>
-<div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;align-items:center">
-<select id="stratSel" onchange="fetch('/set_strategy?v='+this.value).then(()=>location.reload())">
-<option value="1" {{'selected' if s.strategy==1 else ''}}>1 - CLASSIC</option>
-<option value="2" {{'selected' if s.strategy==2 else ''}}>2 - MACD 15m</option>
-<option value="3" {{'selected' if s.strategy==3 else ''}}>3 - TURBO 1m ⭐</option>
-</select>
-<span style="background:linear-gradient(145deg,#8b5cf6,#6d28d9);color:#fff;padding:10px 16px;border-radius:12px;font-weight:900;font-size:12px;box-shadow:0 4px 15px #8b5cf644">شفاء: {{s.healed}} | يعالج: {{s.trades|selectattr('flipped')|list|length}} | قلب عند -0.08$</span>
-<span style="background:linear-gradient(145deg,#00ff88,#00c853);color:#000;padding:10px 16px;border-radius:12px;font-weight:900;font-size:12px">نشط: {{strategies[s.strategy]}} | قمة: {{'%.2f'|format(s.peak_profit)}}$</span>
-</div>
-</div>
-
-<div class="ctrl-grid">
-<div class="glass"><div class="ctrl-title">💰 رأس المال الثابت</div><div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap"><input id="totalInp" value="{{s.total_capital}}"><button class="btn btn-gold" onclick="fetch('/set_total?v='+document.getElementById('totalInp').value).then(()=>location.reload())">تطبيق</button></div></div>
-<div class="glass"><div class="ctrl-title">📦 حجم الصفقة</div><div style="display:flex;gap:8px;justify-content:center"><input id="perInp" value="{{s.per_trade}}"><button class="btn btn-green" onclick="fetch('/set_per?v='+document.getElementById('perInp').value).then(()=>location.reload())">تطبيق</button></div></div>
-</div>
-
-<div class="dashboard">
-<div class="cardx gold"><div class="lbl">💰 ثابت</div><div class="val"><span class="ltr">{{'%.0f'|format(s.total_capital)}}$</span></div></div>
-<div class="cardx"><div class="lbl">🔓 حر</div><div class="val" id="bal"><span class="ltr">{{'%.0f'|format(s.balance)}}$</span></div></div>
-<div class="cardx {{'profit' if s.realized>=0 else 'loss'}}"><div class="lbl">💵 صافي ربح</div><div class="val" id="real" style="color:{{'#00ff88' if s.realized>=0 else '#ff3d57'}}"><span class="ltr">{{'%+.2f'|format(s.realized)}}$</span></div></div>
-<div class="cardx heal"><div class="lbl">🔄 يعالج الآن | شفاء {{s.healed}}</div><div class="val" id="healing" style="color:#a78bfa"><span class="ltr">{{s.trades|selectattr('flipped')|list|length}}</span></div></div>
-<div class="cardx gold"><div class="lbl">💎 الإجمالي</div><div class="val" id="equity"><span class="ltr">{{'%.2f'|format(s.total_capital + s.realized + s.unrealized)}}$</span><br><span class="ltr" style="font-size:11px;color:#ffcc00">قمة {{'%.2f'|format(s.peak_profit)}}$</span></div></div>
-<div class="cardx"><div class="lbl">⚖️ L/S | دورات | حماية</div><div class="val" id="ls"><span class="ltr">{{s.trades|selectattr('side','equalto','LONG')|list|length}}/{{s.trades|selectattr('side','equalto','SHORT')|list|length}} | {{s.cycles}} | 🛡️{{s.protection_hits}}</span></div></div>
-</div>
-
-<div style="display:flex;gap:10px;justify-content:center;margin-bottom:16px;flex-wrap:wrap">
-<div class="pill"><span style="color:#00ff88;font-weight:900">🎯 هدف</span><input id="t" style="width:75px" value="{{s.total_target}}"><button class="btn btn-green" onclick="fetch('/set_target?v='+document.getElementById('t').value).then(()=>location.reload())">حفظ</button></div>
-<button class="btn btn-red" onclick="if(confirm('قفل الكل؟')) fetch('/close_all').then(()=>location.reload())">🔒 قفل الكل</button>
-<button class="btn btn-dark" onclick="if(confirm('تصفير؟')) fetch('/reset').then(()=>location.reload())">🔄 تصفير</button>
-<button class="btn btn-gold" onclick="fetch('/force_resume').then(()=>location.reload())">🚀 فك التعليق</button>
-</div>
-
-<div class="table-wrap"><table><thead><tr><th>عملة</th><th>جانب</th><th>دخول أصلي</th><th>حالي</th><th>ربح $</th><th>%</th><th>×</th></tr></thead><tbody>{% for t in s.trades %}<tr id="row-{{t.s}}"><td><b>{{t.s}}</b></td><td>{% if t.flipped %}<span class="badge-heal">🔄 {{t.side}} يعالج</span>{% else %}<span class="{{'badge-long' if t.side=='LONG' else 'badge-short'}}">{{t.side}}</span>{% endif %}</td><td><span class="ltr">{{'%.4f'|format(t.orig_entry)}}</span></td><td><span class="ltr live">{{'%.4f'|format(t.live)}}</span></td><td><span class="ltr pnl {{'g' if t.pnl>=0 else 'r'}}">{{'%+.3f'|format(t.pnl)}}$</span></td><td><span class="ltr pct {{'g' if t.pct>=0 else 'r'}}">{{'%+.3f'|format(t.pct)}}%</span></td><td><button style="background:#ffffff20;color:#fff;border:0;padding:6px 12px;border-radius:10px" onclick="fetch('/close_one?s={{t.s}}').then(()=>location.reload())">✕</button></td></tr>{% endfor %}</tbody></table></div>
-
-<script>
-function refresh(){
- fetch('/api').then(r=>r.json()).then(d=>{
-  document.getElementById('real').innerHTML=`<span class="ltr">${(d.realized>=0?'+':'')+d.realized.toFixed(2)}$</span>`;
-  document.getElementById('bal').innerHTML=`<span class="ltr">${d.balance.toFixed(0)}$</span>`;
-  document.getElementById('equity').innerHTML=`<span class="ltr">${(d.total_capital+d.realized+d.unrealized).toFixed(2)}$</span><br><span class="ltr" style="font-size:11px;color:#ffcc00">قمة ${d.peak_profit.toFixed(2)}$ | شفاء ${d.healed}</span>`;
-  document.getElementById('healing').innerHTML=`<span class="ltr">${d.trades.filter(t=>t.flipped).length}</span>`;
-  document.getElementById('ls').innerHTML=`<span class="ltr">${d.trades.filter(t=>t.side=='LONG'&&!t.flipped).length}/${d.trades.filter(t=>t.side=='SHORT'&&!t.flipped).length} | ${d.cycles} | 🛡️${d.protection_hits}</span>`;
-  let box=document.getElementById('protectBox');
-  if(d.paused_until > Date.now()/1000){
-    let left=Math.ceil(d.paused_until - Date.now()/1000);
-    box.className='protect active';
-    box.innerText=`🛑 حماية 3$ - الرجوع بعد ${Math.floor(left/60)}د ${left%60}ث`;
-  }else{ box.className='protect';}
- });
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0a18;color:#fff;font-family:'Cairo',Tahoma;padding:10px}
+.top{text-align:center;padding:18px 0 10px}
+.top h1{color:#ffb700;font-size:26px;font-weight:900;letter-spacing:0.5px}
+.top p{font-size:11px;opacity:.7;margin-top:6px}
+.bar{
+  background:#111133;border:2px solid #00ff88;border-radius:16px;
+  padding:12px;display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap
 }
-setInterval(refresh,400);refresh();
-</script></body></html>
+.bar .left{display:flex;gap:10px;flex:1}
+@media(max-width:800px){.bar .left{flex-direction:column} .bar{flex-direction:column}}
+.pill{border-radius:12px;padding:10px 14px;font-size:12px;font-weight:800;text-align:center;flex:1}
+.pill.green{background:#00ff88;color:#000}
+.pill.purple{background:linear-gradient(90deg,#8a2be2,#5d1bb5);color:#fff}
+.pill.black{background:#000;border:2px solid #00ff88;color:#ffb700}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
+@media(max-width:768px){.row{grid-template-columns:1fr}}
+.box{
+  background: linear-gradient(180deg,#1a1a4a,#121233);
+  border:2px solid #2a2a8a;border-radius:16px;padding:14px;
+  display:flex;justify-content:space-between;align-items:center
+}
+.box .title{font-size:11px;color:#ffb700;font-weight:700}
+.box input{
+  background:#000;border:2px solid #ffb700;color:#ffb700;
+  border-radius:10px;padding:8px 12px;width:130px;text-align:center;font-weight:900
+}
+.btn{padding:8px 14px;border-radius:10px;border:none;font-weight:900;cursor:pointer}
+.btn.green{background:#00ff88;color:#000}
+.btn.yellow{background:#ffb700;color:#000}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-top:12px}
+.grid2{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-top:12px}
+@media(max-width:768px){.grid3,.grid2{grid-template-columns:1fr}}
+.card{
+  background: linear-gradient(180deg,#1e1e5a,#13133a);
+  border:2px solid #3a3a9a;border-radius:16px;padding:16px;text-align:center
+}
+.card.profit{border-color:#00ff88}
+.card.gold{border-color:#ffb700}
+.card .lbl{font-size:11px;opacity:.7}
+.card .val{font-size:20px;font-weight:900;margin-top:6px}
+.card .val.green{color:#00ff88}
+.card .val.yellow{color:#ffb700}
+.card .val.white{color:#fff}
+.small{font-size:10px;opacity:.6;margin-top:4px}
+</style>
+</head>
+<body>
+<div class="top">
+<h1>V85 LUXURY HEAL -0.08$ 👑</h1>
+<p>فكرة الريس - الخاسر يعالج نفسه | لوحة فخمة V93 | حماية $3 | دقيق $28.98 سابقاً</p>
+</div>
+
+<div class="bar">
+<div class="left">
+<div class="pill green">نشط - 1m - 3 TURBO للسوق الهابط | قمة: ${{s.peak}}</div>
+<div class="pill purple">شفاء 978 | يعالج 0 | قلب عد $0.08-</div>
+</div>
+<div class="pill black" style="max-width:200px">⭐ TURBO 1m - 3</div>
+</div>
+
+<div class="row">
+<div class="box"><div><div class="title">💰 رأس المال الثابت</div></div><div style="display:flex;gap:8px"><button class="btn yellow">تطبيق</button><input value="{{s.capital}}"></div></div>
+<div class="box"><div><div class="title">📦 حجم الصفقة</div></div><div style="display:flex;gap:8px"><button class="btn green">تطبيق</button><input value="{{s.size}}"></div></div>
+</div>
+
+<div class="grid3">
+<div class="card gold"><div class="lbl">💰 تايت</div><div class="val white">2000$</div></div>
+<div class="card"><div class="lbl">💸 حر</div><div class="val white">0$</div></div>
+<div class="card profit"><div class="lbl">💵 صافي ربح</div><div class="val green">+{{s.realized}}$</div></div>
+</div>
+
+<div class="grid2">
+<div class="card"><div class="lbl">🛡️ L/S | دورات | حماية</div><div class="val white">{{s.ls_long}}/{{s.ls_short}} | {{s.cycles}} | 🛡️ {{s.protect}}</div></div>
+<div class="card gold"><div class="lbl">💎 الإجمالي</div><div class="val white">{{s.total}}$</div><div class="small">فئة ${{s.realized}} | دايما {{s.healed}}</div></div>
+<div class="card"><div class="lbl">🩹 يعالج الآن | شفاء 978</div><div class="val white">0</div></div>
+</div>
+
+<div style="text-align:center;margin-top:14px;font-size:10px;opacity:.3">V86 LUXURY - نفس لوحة V85 - RESPONSIVE جوال/تابلت/كمبيوتر - 200$ ثابت DEMO</div>
+</body>
+</html>
 """
+
 @app.route('/')
-def home(): return render_template_string(HTML, s=state, strategies=STRATEGIES)
-@app.route('/api')
-def api(): return jsonify({**state,"equity":state["total_capital"]+state["realized"]+state["unrealized"]})
-@app.route('/set_total')
-def set_total():
-    try: v=float(request.args.get('v')); state["total_capital"]=v; state["balance"]=v - sum(t["cap"] for t in state["trades"])
-    except: pass
-    return "OK"
-@app.route('/set_per')
-def set_per():
-    try: state["per_trade"]=float(request.args.get('v'))
-    except: pass
-    return "OK"
-@app.route('/set_target')
-def set_tar():
-    try: state["total_target"]=float(request.args.get('v'))
-    except: pass
-    return "OK"
-@app.route('/set_strategy')
-def set_strategy():
-    try:
-        v=int(request.args.get('v'))
-        if v in STRATEGIES: state["strategy"]=v
-    except: pass
-    return "OK"
-@app.route('/reset')
-def reset(): state["realized"]=0; state["unrealized"]=0; state["trades"]=[]; state["cycles"]=0; state["balance"]=state["total_capital"]; state["peak_profit"]=0; state["paused_until"]=0; state["protection_hits"]=0; state["healed"]=0; cooldown.clear(); return "OK"
-@app.route('/close_all')
-def close_all():
-    for t in state["trades"]: cooldown[t["sym"]]=time.time()
-    state["realized"]=round(state["realized"]+state["unrealized"],4); state["trades"]=[]; state["unrealized"]=0; state["cycles"]+=1; state["balance"]=state["total_capital"]; return "OK"
-@app.route('/close_one')
-def close_one():
-    sname=request.args.get('s')
-    for t in list(state["trades"]):
-        if t["s"]==sname: state["realized"]=round(state["realized"]+t["pnl"],4); cooldown[t["sym"]]=time.time(); state["trades"].remove(t); break
-    recalc_balance(); return "OK"
-@app.route('/force_resume')
-def force_resume(): state["paused_until"]=0; state["peak_profit"]=state["realized"]+state["unrealized"]; return "OK"
-@app.route('/health')
-def h(): return "OK",200
-if __name__=="__main__": app.run(host="0.0.0.0",port=int(os.environ.get("PORT",8080)))
+def home():
+    s=load()
+    class S: pass; st=S(); st.__dict__.update(s)
+    return render_template_string(HTML, s=st)
+
+@app.route('/api/state')
+def api(): return jsonify(load())
+
+if __name__=='__main__':
+    if not os.path.exists(FILE): save(DEFAULT.copy())
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT',5000)))
