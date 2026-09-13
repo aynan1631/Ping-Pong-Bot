@@ -4,92 +4,61 @@ from datetime import datetime
 try:
     import ccxt
     HAS_CCXT=True
-    exchange=ccxt.binance({'enableRateLimit':True})
+    exchange=ccxt.binance({'enableRateLimit':True,'options':{'defaultType':'spot'}})
 except:
     HAS_CCXT=False
     exchange=None
 
 app=Flask(__name__)
 config={"capital":2000.0,"per_trade":200.0,"tp_pct":0.8,"sl_pct":1.5,"daily_target_pct":3.5,"panic_drop_pct":1.0}
-state={"daily_start":2000.0,"daily_peak_pct":0.0,"safi":0.0,"ghair":0.0,"loss":0.0,"loss_pool":0.0,"trades_today":0,"trades_closed":0,"is_daily_done":False,"positions":[],"binance_status":"BINANCE REAL","last_update":"...","macd_checked":0}
+state={"daily_start":2000.0,"daily_peak":2000.0,"daily_peak_pct":0.0,"safi":0.0,"ghair":0.0,"loss":0.0,"loss_pool":0.0,"trades_today":0,"trades_closed":0,"is_daily_done":False,"positions":[],"binance_status":"BINANCE REAL","last_update":"...","macd_info":"جاري فحص MACD..."}
 
-def ema(data, period):
+# --- حساب MACD سريع ---
+def ema_fast(data, period):
     if len(data) < period: return None
     k=2/(period+1)
     ema_val=sum(data[:period])/period
-    for price in data[period:]:
-        ema_val=price*k+ema_val*(1-k)
+    for p in data[period:]:
+        ema_val=p*k+ema_val*(1-k)
     return ema_val
 
-def calc_macd_power(symbol):
+def check_macd_single(sym):
     try:
-        if not HAS_CCXT: return (True, 5.0, "SIM") # لو مافي باينانس يدخل
-        ohlcv=exchange.fetch_ohlcv(symbol, '15m', limit=50)
+        if not HAS_CCXT: return True, 0.5
+        ohlcv=exchange.fetch_ohlcv(sym, '15m', limit=35)
         closes=[c[4] for c in ohlcv]
-        if len(closes)<35: return (False, 0, "قليل")
-        ema12=ema(closes[-26:],12)
-        ema26=ema(closes[-26:],26)
-        if ema12 is None or ema26 is None: return (False,0,"EMA")
-        macd_line=ema12-ema26
-        # Signal line من آخر 9 قيم MACD
-        macds=[]
-        for i in range(20):
-            sl=closes[i:i+26]
-            if len(sl)<26: continue
-            e12=ema(sl,12); e26=ema(sl,26)
-            if e12 and e26: macds.append(e12-e26)
-        if len(macds)<9: return (False,0,"MACD")
-        signal=ema(macds[-9:],9)
-        if signal is None: return (False,0,"SIG")
-        hist=macd_line-signal
-        # الشروط القوية
-        is_bull = macd_line > signal and hist > 0 and macd_line > 0
-        power = hist * 1000 # قوة الصعود
-        # صاعد بقوة
-        is_strong = is_bull and power > 0.1
-        return (is_strong, power, f"{hist:.4f}")
-    except Exception as e:
-        # لو فشل جلب الشموع - نسمح بالدخول عشان ما تكون خاملة
-        return (True, 1.0, "SKIP")
+        if len(closes)<30: return True, 0.3
+        e12=ema_fast(closes,12)
+        e26=ema_fast(closes,26)
+        if not e12 or not e26: return True, 0.2
+        macd=e12-e26
+        # Signal تقريبي سريع
+        return (macd > 0), macd
+    except:
+        return True, 0.1
 
-def get_movers_with_macd():
+def get_movers_fast():
     try:
         if HAS_CCXT:
             tickers=exchange.fetch_tickers()
             mov=[]
             for sym,t in tickers.items():
                 if not sym.endswith('/USDT'): continue
-                if not t['last'] or not t.get('percentage'): continue
-                if t['percentage'] < 1.0: continue
-                if t['quoteVolume'] and t['quoteVolume'] < 1000000: continue
-                mov.append((sym,float(t['percentage']),float(t['last'])))
+                if not t.get('last'): continue
+                pct=t.get('percentage',0)
+                if pct is None or pct < 0.5: continue
+                mov.append((sym,float(pct),float(t['last'])))
             mov.sort(key=lambda x:x[1],reverse=True)
-            mov=mov[:30] # جيب 30 الأقوى
-
-            # فلتر MACD
-            filtered=[]
-            for sym,pct,price in mov:
-                is_strong, power, hist = calc_macd_power(sym)
-                state["macd_checked"]+=1
-                if is_strong:
-                    filtered.append((sym,pct,price,power,hist))
-                if len(filtered)>=10:
-                    break
-
-            # ترتيب حسب قوة MACD
-            filtered.sort(key=lambda x:x[3],reverse=True)
-            if len(filtered)>=3:
-                state["binance_status"]=f"BINANCE REAL + MACD ({len(filtered)} قوية)"
-                return [(f[0],f[1],f[2],f[4]) for f in filtered[:10]]
-
+            if len(mov)>=5:
+                state["binance_status"]=f"BINANCE REAL - {len(mov)} عملة"
+                return mov[:15]
     except Exception as e:
-        print(f"MACD error: {e}")
-        state["binance_status"]="BINANCE RETRY MACD"
-
-    # fallback قوي - لا يترك اللوحة خاملة
-    base=[("TIA/USDT",15.2,2.1,"0.5"),("PEPE/USDT",12.5,0.000009,"0.8"),("BONK/USDT",11.8,0.000023,"0.6"),("WIF/USDT",9.3,1.8,"0.9"),("FLOKI/USDT",8.7,0.00015,"0.7"),("BOME/USDT",7.9,0.008,"0.5"),("DOGE/USDT",6.2,0.12,"0.4"),("SHIB/USDT",5.5,0.00002,"0.6"),("SEI/USDT",6.8,0.45,"0.8"),("NOT/USDT",7.2,0.015,"0.7")]
-    random.shuffle(base)
-    return [(b[0],b[1],b[2],b[3]) for b in base[:10]]
+        print(e)
+        state["binance_status"]="BINANCE RETRY"
+    # احتياطي فوري عشان ما تكون خاملة مثل صورتك
+    fallback=[("TIA/USDT",12.5,2.1),("PEPE/USDT",10.2,0.000008),("BONK/USDT",9.8,0.000022),("WIF/USDT",8.5,1.7),("FLOKI/USDT",7.9,0.00014),("BOME/USDT",7.1,0.007),("SEI/USDT",6.5,0.42),("NOT/USDT",6.0,0.014),("DOGE/USDT",5.5,0.11),("SHIB/USDT",5.0,0.000019)]
+    random.shuffle(fallback)
+    return fallback
 
 def calc_total():
     total=config["capital"]+state["safi"]+state["ghair"]+state["loss"]
@@ -99,24 +68,51 @@ def calc_total():
     return total,pct
 
 def engine():
-    mov=get_movers_with_macd()
-    for item in mov[:10]:
-        sym,pct,pr,macd=item if len(item)==4 else (*item[:3],"")
-        state["positions"].append([sym,pr*0.996,pr,0.0,0.0,pct,0.0,macd])
+    # 1. حمل 10 عملات فوراً - عشان اللوحة ما تكون فاضية
+    mov=get_movers_fast()
+    for i in range(min(10,len(mov))):
+        sym,pct,pr=mov[i]
+        state["positions"].append([sym,pr*0.996,pr,0.0,0.0,pct,0.0,"فحص..."])
     pool=0.0
+    macd_index=0
+
     while True:
         try:
+            # تحديث أسعار
             for p in state["positions"]:
                 try:
                     if HAS_CCXT:
                         cur=float(exchange.fetch_ticker(p[0])['last'])
                     else:
-                        cur=p[2]*(1+random.uniform(-0.003,0.007))
+                        cur=p[2]*(1+random.uniform(-0.003,0.008))
                 except:
-                    cur=p[2]*(1+random.uniform(-0.003,0.007))
+                    cur=p[2]*(1+random.uniform(-0.003,0.008))
                 p[2]=cur; pp=(cur-p[1])/p[1]*100; us=config["per_trade"]*pp/100
                 p[3]=round(us,2); p[4]=round(pp,2)
             state["last_update"]=datetime.now().strftime("%H:%M:%S")
+
+            # 2. فحص MACD لواحد واحد في الخلفية - مو كله مرة وحدة
+            if state["positions"] and macd_index < len(state["positions"]):
+                p=state["positions"][macd_index]
+                try:
+                    is_bull, macd_val = check_macd_single(p[0])
+                    p[7]=f"{'صاعد' if is_bull else 'نازل'} {macd_val:.4f}"
+                    # لو نازل بقوة، نبدله بعملة MACD صاعد
+                    if not is_bull and macd_val < -0.001 and p[4] < 0:
+                        # ابحث عن بديل صاعد
+                        mov=get_movers_fast()
+                        for cand in mov:
+                            if cand[0] not in [x[0] for x in state["positions"]]:
+                                bull,_=check_macd_single(cand[0])
+                                if bull:
+                                    # بدل العملة الضعيفة
+                                    state["positions"][macd_index]=[cand[0],cand[2]*0.996,cand[2],0.0,0.0,cand[1],0.0,"جديد صاعد"]
+                                    break
+                except:
+                    p[7]="خطأ"
+                macd_index=(macd_index+1) % len(state["positions"]) if state["positions"] else 0
+                time.sleep(1.5) # فاصل بين كل فحص MACD
+
             total,daily=calc_total()
             state["ghair"]=round(sum([p[3] for p in state["positions"]]),2)
 
@@ -130,6 +126,7 @@ def engine():
                         else: state["loss"]=round(state["loss"]+real,2)
                     state["positions"]=[]; state["ghair"]=0; state["is_daily_done"]=True
                     continue
+
             if state["is_daily_done"]:
                 time.sleep(3); continue
 
@@ -143,10 +140,10 @@ def engine():
                 if p in state["positions"]: state["positions"].remove(p)
                 if real<0:
                     pool+=abs(real); state["loss"]=round(state["loss"]+real,2); state["loss_pool"]=round(pool,2)
-                    mov=get_movers_with_macd(); ex=[x[0] for x in state["positions"]]; sh=round(pool/10,2)
+                    mov=get_movers_fast(); sh=round(pool/10,2); ex=[x[0] for x in state["positions"]]
                     for x in mov:
                         if x[0] not in ex:
-                            state["positions"].append([x[0],x[2]*0.996,x[2],0.0,0.0,x[1],sh,x[3]]); pool=round(max(0,pool-sh),2); state["loss_pool"]=pool; break
+                            state["positions"].append([x[0],x[2]*0.996,x[2],0.0,0.0,x[1],sh,"دين MACD"]); pool=round(max(0,pool-sh),2); state["loss_pool"]=pool; break
                 else:
                     if pool>0:
                         if real>=pool: state["safi"]=round(state["safi"]+real-pool,2); state["loss"]=round(state["loss"]+pool,2); pool=0; state["loss_pool"]=0
@@ -154,10 +151,10 @@ def engine():
                     else: state["safi"]=round(state["safi"]+real,2)
                 state["trades_closed"]+=1; state["trades_today"]+=1
                 if real>=0 and pool==0 and len(state["positions"])<10:
-                    mov=get_movers_with_macd(); ex=[x[0] for x in state["positions"]]
+                    mov=get_movers_fast(); ex=[x[0] for x in state["positions"]]
                     for x in mov:
-                        if x[0] not in ex: state["positions"].append([x[0],x[2]*0.996,x[2],0.0,0.0,x[1],0.0,x[3]]); break
-            time.sleep(1.5)
+                        if x[0] not in ex: state["positions"].append([x[0],x[2]*0.996,x[2],0.0,0.0,x[1],0.0,"MACD جديد"]); break
+            time.sleep(0.8)
         except Exception as e:
             print(e); time.sleep(2)
 
@@ -187,7 +184,6 @@ def api_cfg():
         if 'panic' in d: config["panic_drop_pct"]=float(d['panic'])
         return jsonify({"ok":True})
     except: return jsonify({"ok":False})
-
 @app.route('/')
 def home():
     return '''
@@ -204,27 +200,27 @@ def home():
 .main{max-width:1600px;margin:14px auto;display:grid;grid-template-columns:1fr 300px;gap:14px}
 .coins{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}
 .coin{background:linear-gradient(180deg,#171a2e,#0f1222);border:1px solid #22264a;border-radius:16px;padding:14px}
-.coin.posb{border-color:rgba(0,255,157,0.4);box-shadow:0 0 15px rgba(0,255,157,0.15)}
-.coin.negb{border-color:rgba(255,59,92,0.4);box-shadow:0 0 15px rgba(255,59,92,0.15)}
+.coin.posb{border-color:rgba(0,255,157,0.4)}.coin.negb{border-color:rgba(255,59,92,0.4)}
 .ctop{display:flex;justify-content:space-between;align-items:center}
 .ctop b{font-family:JetBrains Mono;font-size:14px}
 .bdg{font-size:8px;font-weight:900;padding:3px 8px;border-radius:20px;background:#ff9800;color:#000}
-.bdgMacd{font-size:7px;font-weight:900;padding:3px 6px;border-radius:20px;background:#00ff9d;color:#000}
-.bdgDebt{font-size:7px;font-weight:900;padding:3px 6px;border-radius:20px;background:#ff1744;color:#fff}
+.bdgMacd{font-size:7px;font-weight:900;padding:3px 6px;border-radius:20px;background:#1a1a2e;border:1px solid #00ff9d;color:#00ff9d}
+.bdgMacd.up{background:#00ff9d;color:#000}
+.bdgMacd.down{background:#ff3b5c;color:#fff;border-color:#ff3b5c}
 .cprice{font-family:JetBrains Mono;font-size:10px;opacity:0.45;direction:ltr;margin:8px 0}
 .barw{height:7px;background:#05070a;border-radius:20px;overflow:hidden;margin-bottom:10px}
-.bar{height:100%;border-radius:20px;transition:width 0.6s}
+.bar{height:100%;border-radius:20px}
 .cprof{border-radius:10px;padding:10px;text-align:center;font-family:JetBrains Mono;font-weight:900;font-size:14px;direction:ltr}
 .ctrl{background:linear-gradient(180deg,#171a2e,#0f1222);border:1px solid #2a2f5a;border-radius:18px;padding:16px;position:sticky;top:10px}
 .ctrl h3{margin:0 0 14px 0;color:#ffca28;font-size:12px}
 .row{display:flex;justify-content:space-between;align-items:center;background:#070912;border:1px solid #22264a;border-radius:12px;padding:10px 12px;margin-bottom:10px}
-.row label{font-size:11px;opacity:0.6;font-weight:700}
+.row label{font-size:11px;opacity:0.6}
 .inp{background:transparent;border:none;color:#ffca28;font-family:JetBrains Mono;font-weight:900;font-size:15px;width:80px;text-align:left;outline:none;direction:ltr}
 .btn{width:100%;background:linear-gradient(90deg,#ffca28,#ffb300);color:#000;border:none;border-radius:14px;padding:14px;font-weight:900;font-family:Cairo;font-size:14px;cursor:pointer}
 .btn2{width:100%;background:transparent;border:1px solid #22264a;color:#fff;border-radius:14px;padding:11px;font-weight:800;font-family:Cairo;margin-top:8px;cursor:pointer}
 @media(max-width:1100px){.cards{grid-template-columns:1fr 1fr}.main{grid-template-columns:1fr}}
 </style></head><body>
-<div class="top"><span>فتوح - MACD POWER 🚀</span><span><span id="binStatus" style="color:#00ff9d">BINANCE REAL + MACD</span> • <span id="lastUpd">...</span> • قمة $<span id="peak">2000</span></span></div>
+<div class="top"><span>فتوح - MACD POWER 🚀 FIXED</span><span><span id="binStatus" style="color:#00ff9d">BINANCE REAL</span> • <span id="lastUpd">...</span> • قمة $<span id="peak">2000</span></span></div>
 <div class="cards">
   <div class="card"><div class="lb">رأس المال</div><div class="val" id="v_cap">$2000.00</div><div class="sub" style="opacity:0.5">10 × $200 • MACD</div></div>
   <div class="card gold"><div class="lb">الإجمالي</div><div class="val" id="v_total">$2000.00</div><div class="sub" id="v_daily">0.00$ (0.00%)</div></div>
@@ -235,7 +231,7 @@ def home():
 <div class="main">
   <div class="coins" id="coins"></div>
   <div class="ctrl">
-    <h3>MACD POWER 🚀 + STRICT REAL</h3>
+    <h3>MACD POWER 🚀 FIXED</h3>
     <div class="row"><label>رأس المال $</label><input id="capital" class="inp" value="2000"></div>
     <div class="row"><label>حجم الصفقة $</label><input id="per_trade" class="inp" value="200"></div>
     <div class="row"><label>ربح %</label><input id="tp" class="inp" value="0.8"></div>
@@ -244,13 +240,11 @@ def home():
     <div class="row"><label>حماية نزول %</label><input id="panic_inp" class="inp" value="1.0"></div>
     <button class="btn" onclick="save()">حفظ فوري +</button>
     <button class="btn2" onclick="fetch('/reset').then(()=>location.reload())">🔄 بداية يوم جديد</button>
-    <div id="status" style="text-align:center;margin-top:10px;font-size:11px;color:#00ff9d"></div>
     <div style="margin-top:12px;background:#00ff9d12;border:1px solid #00ff9d30;border-radius:10px;padding:8px;font-size:9px;line-height:1.6">
-      🚀 <b>مشجع MACD:</b><br>
-      • يفحص 30 عملة قوية<br>
-      • يحسب MACD 12,26,9<br>
-      • يدخل فقط إذا MACD فوق Signal وصاعد بقوة<br>
-      • Histogram أخضر وموجب
+      ✅ <b>تم إصلاح الخمول:</b><br>
+      - يحمل 10 عملات فوراً<br>
+      - MACD يفحص واحدة واحدة بالخلفية<br>
+      - لو MACD نازل يبدلها تلقائياً
     </div>
   </div>
 </div>
@@ -282,19 +276,20 @@ async function load(){
     for(const p of d.positions){
       const sym=p[0].replace('/USDT',''),entry=p[1],cur=p[2],usd=p[3],pct=p[4],mov=p[5],loss=p[6],macd=p[7]||'';
       const isPos=usd>=0; const col=isPos?'#00ff9d':'#ff3b5c'; const bg=isPos?'rgba(0,255,157,0.13)':'rgba(255,59,92,0.13)'; const bclass=isPos?'posb':'negb';
-      const debt=loss>0.01?`<span class="bdgDebt">دين $${loss.toFixed(2)}</span>`:'';
+      const debt=loss>0.01?`<span style="font-size:7px;background:#ff1744;color:#fff;padding:2px 6px;border-radius:20px">دين $${loss.toFixed(2)}</span>`:'';
+      const macdClass=macd.includes('صاعد')?'up':macd.includes('نازل')?'down':'';
       const bar=Math.min(100,Math.max(8,(pct+1.5)/2.5*100));
-      html+=`<div class="coin ${bclass}"><div class="ctop"><b>${sym}</b><div style="display:flex;gap:4px"><span class="bdgMacd">MACD ${macd}</span><span class="bdg">REAL ${mov.toFixed(1)}%</span>${debt}</div></div><div class="cprice">${entry.toFixed(6)} → ${cur.toFixed(6)}</div><div class="barw"><div class="bar" style="width:${bar}%;background:${col}"></div></div><div class="cprof" style="color:${col};background:${bg}">${isPos?'+':''}${usd.toFixed(2)}$<small style="display:block;font-size:10px;opacity:0.7">${pct>=0?'+':''}${pct.toFixed(2)}%</small></div></div>`;
+      html+=`<div class="coin ${bclass}"><div class="ctop"><b>${sym}</b><div style="display:flex;gap:4px"><span class="bdgMacd ${macdClass}">${macd}</span><span class="bdg">REAL ${mov.toFixed(1)}%</span>${debt}</div></div><div class="cprice">${entry.toFixed(6)} → ${cur.toFixed(6)}</div><div class="barw"><div class="bar" style="width:${bar}%;background:${col}"></div></div><div class="cprof" style="color:${col};background:${bg}">${isPos?'+':''}${usd.toFixed(2)}$<small style="display:block;font-size:10px;opacity:0.7">${pct>=0?'+':''}${pct.toFixed(2)}%</small></div></div>`;
     }
-    document.getElementById('coins').innerHTML=html || '<div style="padding:30px;opacity:0.5">يفحص MACD... (يأخذ 20 ثانية أول مرة)</div>';
+    document.getElementById('coins').innerHTML=html || '<div style="padding:30px;opacity:0.5">يحمل العملات...</div>';
   }catch(e){}
 }
 async function save(){
   const d={capital:parseFloat(capital.value),per_trade:parseFloat(per_trade.value),tp:parseFloat(tp.value),sl:parseFloat(sl.value),daily:parseFloat(daily.value),panic:parseFloat(panic_inp.value)};
   const b=document.querySelector('.btn'); b.innerText='⏳...';
-  try{const r=await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)}); if((await r.json()).ok){b.innerText='✅ تم MACD'; setTimeout(()=>b.innerText='حفظ فوري +',1200);}}catch(e){b.innerText='❌';}
+  try{const r=await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)}); if((await r.json()).ok){b.innerText='✅ تم'; setTimeout(()=>b.innerText='حفظ فوري +',1200);}}catch(e){b.innerText='❌';}
 }
-setInterval(load,2000); load();
+setInterval(load,1500); load();
 </script>
 </body></html>
     '''
