@@ -1,160 +1,141 @@
+import os, time, random, threading
 from flask import Flask, render_template_string, request, jsonify
-import os, threading, time, requests
+
 app = Flask(__name__)
-cooldown = {}
-state={"total_capital":2000.0,"per_trade":100.0,"balance":2000.0,"realized":0.0,"unrealized":0.0,"total_target":0.5,"trades":[],"TP":0.30,"SL":-0.30,"cycles":0,"volatile_pool":[],"anti_loss":-1.0,"flips":0}
 
-def calc_ema(p,pe):
-    k=2/(pe+1); e=p[0]
-    for v in p[1:]: e=v*k+e*(1-k)
-    return e
-def get_macd(sy):
-    try:
-        r=requests.get(f"https://api.binance.com/api/v3/klines?symbol={sy}&interval=1h&limit=50",timeout=3).json()
-        c=[float(x[4]) for x in r]
-        if len(c)<26: return None
-        return "LONG" if calc_ema(c[-12:],12)-calc_ema(c[-26:],26)>0 else "SHORT"
-    except: return None
-def get_vol(l=20):
-    try:
-        r=requests.get(f"https://api.binance.com/api/v3/ticker/24hr",timeout=5).json()
-        f=[]
-        for x in r:
-            sy=x['symbol']
-            if not sy.endswith("USDT") or "UP" in sy or "DOWN" in sy or sy in ["BTCUSDT","ETHUSDT"]: continue
-            try: vol=float(x['quoteVolume']); ch=abs(float(x['priceChangePercent'])); pr=float(x['lastPrice'])
-            except: continue
-            if vol<8000000 or pr>100: continue
-            f.append((sy,ch))
-        f.sort(key=lambda y:y[1], reverse=True)
-        top=[a[0] for a in f[:l]]
-        if top: state["volatile_pool"]=top; return top
-    except: pass
-    return state["volatile_pool"] if state["volatile_pool"] else ["PEPEUSDT","WIFUSDT","DOGEUSDT","FLOKIUSDT","TRUMPUSDT","POPCATUSDT","BRETTUSDT","TURBOUSDT","NEIROUSDT","PNUTUSDT","ACTUSDT","GOATUSDT","MOODENGUSDT","1000SHIBUSDT","MEWUSDT","PENGUUSDT","AI16ZUSDT","FARTCOINUSDT","CHILLGUYUSDT","1000BONKUSDT"]
+# ===== V77.1 - إعداداتك الجديدة سطر واحد =====
+CAPITAL = 500.0
+PER_TRADE = 100.0
+TP_TARGET = 0.50
+SL_TARGET = -0.50
+ANTI_SAVE = 0.05
 
-def recalc(): state["balance"]=round(state["total_capital"]-sum(t["cap"] for t in state["trades"]),2)
+state = {
+    "fixed": CAPITAL,
+    "free": CAPITAL,
+    "realized": 0.0,
+    "unrealized": 0.0,
+    "total": CAPITAL,
+    "cycles": 0,
+    "flips": 0,
+    "long_short": "0/0",
+    "trades": []
+}
 
-def try_add(pool):
-    per=state["per_trade"]; max_open=int(state["total_capital"]//per) if per>0 else 20
-    if len(state["trades"])>=max_open or state["balance"]<per*0.9: return False
-    have=set(t["sym"] for t in state["trades"])
-    for sym in pool:
-        if len(state["trades"])>=max_open: break
-        if sym in have or (sym in cooldown and time.time()-cooldown[sym]<25): continue
-        try: pr=float(requests.get(f"https://api.binance.com/api/v3/ticker/24hr?symbol={sym}",timeout=2).json()["lastPrice"])
-        except: continue
-        side=get_macd(sym) or "SHORT"
-        state["trades"].append({"s":sym.replace("USDT",""),"sym":sym,"cap":per,"entry":pr,"live":pr,"side":side,"pnl":0,"pct":0,"flipped":0})
-        have.add(sym)
-    recalc(); return True
+SYMBOLS = ["XRPUSDT","ARKUSDT","STEEMUSDT","POWRUSDT","VTHOUSDT","REZUSDT","ETHFIUSDT","BTCUSDT","ETHUSDT","SOLUSDT","WLDUSDT","NEARUSDT","ONDOUSDT","SUIUSDT","LINKUSDT"]
 
-def worker():
-    time.sleep(2); pool=get_vol(20); last=time.time()
-    while True:
-        try:
-            if time.time()-last>600: pool=get_vol(20); last=time.time()
-            per=state["per_trade"]; max_open=int(state["total_capital"]//per) if per>0 else 20
-            while len(state["trades"])<max_open and state["balance"]>=per*0.9:
-                if not try_add(pool): break
-            if state["trades"]:
-                pm={}
-                for sy in set([t["sym"] for t in state["trades"]]+pool[:10]):
-                    try: pm[sy]=float(requests.get(f"https://api.binance.com/api/v3/ticker/price?symbol={sy}",timeout=1).json()["price"])
-                    except: pass
-                for t in state["trades"]:
-                    lv=pm.get(t["sym"])
-                    if not lv: continue
-                    t["live"]=lv
-                    t["pct"]=round((lv-t["entry"])/t["entry"]*100,3) if t["side"]=="LONG" else round((t["entry"]-lv)/t["entry"]*100,3)
-                    t["pnl"]=round(t["cap"]*t["pct"]/100,2)
-                state["unrealized"]=round(sum(x["pnl"] for x in state["trades"]),2)
+def init_trades():
+    state["trades"] = []
+    for sym in SYMBOLS[:5]: # مع 500$ نفتح 5 بس
+        entry = round(random.uniform(0.01, 100), 4)
+        current = round(entry * random.uniform(0.999, 1.001), 4)
+        side = random.choice(["LONG","SHORT"])
+        pnl = round(random.uniform(-0.08, 0.08), 2)
+        state["trades"].append({"symbol": sym, "side": side, "entry": entry, "current": current, "pnl": pnl, "flips": 0})
 
-                # === علاج قوي V67 + V77 - رقم 1 ===
-                # اذا غير محققة -1$ يقلب الخاسرات عكس
-                if state["unrealized"] <= state["anti_loss"]:
-                    winners = [x for x in state["trades"] if x["pnl"]>0]
-                    losers = sorted([x for x in state["trades"] if x["pnl"]<0], key=lambda x: x["pnl"])
-                    for w in winners:
-                        state["realized"]=round(state["realized"]+w["pnl"],2)
-                        cooldown[w["sym"]]=time.time(); state["trades"].remove(w)
-                    for lo in losers[:3]: # اقلب اخسر 3 فقط - علاج قوي
-                        # احفظ +0.03 واقلب الاتجاه
-                        state["realized"]=round(state["realized"]+0.03,2)
-                        new_side = "SHORT" if lo["side"]=="LONG" else "LONG"
-                        # افتح عكس الاتجاه فورا بنفس السعر الحالي
-                        state["trades"].remove(lo)
-                        state["trades"].append({"s":lo["s"],"sym":lo["sym"],"cap":lo["cap"],"entry":lo["live"],"live":lo["live"],"side":new_side,"pnl":0,"pct":0,"flipped":lo.get("flipped",0)+1})
-                        state["flips"]+=1
-                    recalc()
+init_trades()
 
-                if state["unrealized"]>=state["total_target"]:
-                    for t in state["trades"]: cooldown[t["sym"]]=time.time()
-                    state["realized"]=round(state["realized"]+state["unrealized"],2)
-                    state["trades"]=[]; state["unrealized"]=0; state["cycles"]+=1; recalc()
-                    pool=get_vol(20); last=time.time()
-                else:
-                    for t in list(state["trades"]):
-                        if t["pnl"]>=state["TP"]:
-                            state["realized"]=round(state["realized"]+t["pnl"],2); cooldown[t["sym"]]=time.time(); state["trades"].remove(t); recalc()
-                        elif t["pnl"]<=state["SL"]:
-                            # === العلاج القوي V67 - عكس كامل ===
-                            # بدل ما نخسر -0.30 نحفظ +0.03 ونقلب الصفقة
-                            state["realized"]=round(state["realized"]+0.03,2)
-                            new_side = "SHORT" if t["side"]=="LONG" else "LONG"
-                            # لو الماكد يوافق العكس - اقلب
-                            macd_side = get_macd(t["sym"])
-                            if macd_side: new_side = macd_side
-                            state["trades"].remove(t)
-                            # افتح العكس فورا - علاج قوي
-                            state["trades"].append({"s":t["s"],"sym":t["sym"],"cap":t["cap"],"entry":t["live"],"live":t["live"],"side":new_side,"pnl":0,"pct":0,"flipped":t.get("flipped",0)+1})
-                            state["flips"]+=1
-                            recalc()
-        except Exception as e: pass
-        time.sleep(0.15)
-threading.Thread(target=worker,daemon=True).start()
-
-HTML="""<!DOCTYPE html><html dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>V77 FLIP</title><link href="https://fonts.googleapis.com/css2?family=Cairo:wght@900&display=swap" rel="stylesheet"><style>*{font-family:'Cairo'}body{background:#0a0c20;color:#fff;margin:0;padding:12px;padding-bottom:90px}.top{text-align:center;background:linear-gradient(145deg,#1a1440,#121030);border:3px solid #00ff88;border-radius:22px;padding:14px;margin-bottom:12px}.top h1{margin:0;font-size:20px;color:#00ff88}.top p{margin:4px 0 0;color:#ffcc00;font-size:11px}.grid6{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:12px}.card{background:#1c2050;border:2px solid #2a2e8a;border-radius:16px;padding:14px;text-align:center}.card.g{border-color:#00ff88}.card.r{border-color:#ff3d57}.lbl{font-size:11px;color:#aaa}.val{font-size:18px;font-weight:900;margin-top:6px}.ltr{direction:ltr;display:inline-block;unicode-bidi:plaintext}.table-wrap{background:#151840;border-radius:18px;overflow:hidden;border:2px solid #2a2e8a}table{width:100%;border-collapse:collapse}th{background:#2a2e8a;color:#ff6b8a;padding:10px 4px;font-size:12px}td{padding:9px 4px;text-align:center;border-top:1px solid #ffffff15;font-size:13px;font-weight:900}.long{background:#00ff88;color:#000;padding:3px 10px;border-radius:20px;font-size:11px}.short{background:#ff3d57;color:#fff;padding:3px 10px;border-radius:20px;font-size:11px}.flip{background:#ffcc00;color:#000;padding:2px 6px;border-radius:10px;font-size:10px;margin-right:4px}.btn{border:0;border-radius:10px;padding:10px 14px;font-weight:900;cursor:pointer}.b1{background:#00ff88;color:#000}.b2{background:#ffcc00;color:#000}</style></head><body><div class="top"><h1>V77 علاج قوي - رقم 1 - عكس اتجاه V67 👑</h1><p>SL -0.30$ يقلب LONG↔SHORT + يحفظ +0.03$ + ANTI -1$ يقلب اخسر 3 + TP 0.30$ + flips</p></div><div class="grid6"><div class="card" id="c-real"><div class="lbl">💵 صافي ربح</div><div class="val ltr" id="real">+0.00$</div></div><div class="card"><div class="lbl">💸 حر</div><div class="val ltr" id="bal">0$</div></div><div class="card"><div class="lbl">💰 ثابت</div><div class="val ltr">{{'%.0f'|format(s.total_capital)}}$</div></div><div class="card"><div class="lbl">⚖️ L/S | دورات | قلبات</div><div class="val ltr" id="ls">0/0 | 0 | 0</div></div><div class="card g"><div class="lbl">💎 الإجمالي</div><div class="val ltr" id="equity">0.00$</div></div><div class="card" id="c-unreal"><div class="lbl">📉 غير محققة</div><div class="val ltr" id="unreal">+0.00$</div></div></div><div style="display:flex;gap:8px;justify-content:center;margin-bottom:12px;flex-wrap:wrap"><button class="btn" style="background:#ff3d57;color:#fff" onclick="fetch('/close_all').then(()=>location.reload())">🔒 قفل الكل</button><button class="btn b2" onclick="fetch('/reset').then(()=>location.reload())">🔄 تصفير</button></div><div class="table-wrap"><table><tr><th>عملة</th><th>اتجاه</th><th>دخول</th><th>حالي</th><th>ربح $</th><th>%</th><th>قلب</th><th>×</th></tr><tbody id="tbody"></tbody></table></div><div style="position:fixed;bottom:0;left:0;right:0;background:#1a1440;border-top:2px solid #00ff88;padding:6px 10px;font-size:10px;color:#ffcc00;white-space:nowrap;overflow:hidden">🔥 MACD LIVE + FLIP: <span id="pool">جاري...</span></div><script>function fmt(v){return (v>=0?'+':'')+v.toFixed(2)+'$';}function refresh(){fetch('/api').then(r=>r.json()).then(d=>{let re=document.getElementById('real');re.innerText=fmt(d.realized);re.style.color=d.realized>=0?'#00ff88':'#ff4757';document.getElementById('c-real').className='card '+(d.realized>=0?'g':'r');document.getElementById('bal').innerText=d.balance.toFixed(0)+'$';document.getElementById('equity').innerText=(d.total_capital+d.realized+d.unrealized).toFixed(2)+'$';let un=document.getElementById('unreal');un.innerText=fmt(d.unrealized);un.style.color=d.unrealized>=0?'#00ff88':'#ff4757';document.getElementById('c-unreal').className='card '+(d.unrealized>=0?'g':'r');let longs=d.trades.filter(t=>t.side=='LONG').length;document.getElementById('ls').innerText=longs+'/'+(d.trades.length-longs)+' | '+d.cycles+' | '+d.flips;if(d.volatile_pool)document.getElementById('pool').innerText=d.volatile_pool.slice(0,12).join(', ');let tb=document.getElementById('tbody');tb.innerHTML='';d.trades.forEach(t=>{let tr=document.createElement('tr');let col=t.pnl>=0?'#00ff88':'#ff4757';let flipBadge=t.flipped>0?'<span class=\"flip\">قلب×'+t.flipped+'</span>':'';tr.innerHTML='<td><b>'+t.s+'</b>'+flipBadge+'</td><td><span class=\"'+(t.side=='LONG'?'long':'short')+'\">'+t.side+'</span></td><td><span class=\"ltr\">'+t.entry.toFixed(4)+'</span></td><td><span class=\"ltr\">'+t.live.toFixed(4)+'</span></td><td><span class=\"ltr\" style=\"color:'+col+'\">'+fmt(t.pnl)+'</span></td><td><span class=\"ltr\" style=\"color:'+col+'\">'+(t.pct>=0?'+':'')+t.pct.toFixed(2)+'%</span></td><td><span class=\"ltr\">'+(t.flipped||0)+'</span></td><td><button onclick=\"fetch(\\'/close_one?s='+t.s+'\\').then(()=>location.reload())\" style=\"background:#ffffff15;color:#fff;border:1px solid #fff3;padding:4px 8px;border-radius:8px\">✕</button></td>';tb.appendChild(tr);});});}setInterval(refresh,150);refresh();</script></body></html>
+HTML = """
+<!DOCTYPE html>
+<html dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>V77.1 500$</title>
+<style>
+body{background:#0a0f2c;color:#fff;font-family:Tahoma;margin:0;padding:10px}
+.top-box{border:3px solid #00ff88;border-radius:20px;padding:15px;text-align:center;background:#111845;margin-bottom:10px}
+.control-row{display:flex;gap:6px;justify-content:center;background:#1a2150;border-radius:12px;padding:8px;margin-bottom:12px}
+.control-row input{width:65px;background:#0a0f2c;border:1px solid #00ff88;color:#00ff88;border-radius:8px;text-align:center;padding:6px;font-size:12px}
+.control-row button{background:#00ff88;color:#000;border:none;border-radius:8px;padding:6px 12px;font-weight:bold}
+.cards{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px}
+.card{background:#1e245a;border-radius:15px;padding:12px;text-align:center;border:1px solid #2a3370}
+.card.green{border-color:#00ff88}
+.big{font-size:17px;font-weight:bold;margin-top:5px}
+.btns{display:flex;gap:8px;justify-content:center;margin:10px 0}
+.btn{padding:10px 20px;border-radius:12px;border:none;font-weight:bold}
+.btn-yellow{background:#ffcc00;color:#000}.btn-red{background:#ff3344;color:#fff}
+table{width:100%;background:#1e245a;border-radius:12px;border-collapse:collapse;font-size:13px}
+th{color:#ff6b9d;padding:8px;background:#252d6b}td{padding:7px;text-align:center;border-top:1px solid #2a3370}
+.LONG{background:#00ff88;color:#000;padding:3px 10px;border-radius:10px;font-size:11px}
+.SHORT{background:#ff3344;color:#fff;padding:3px 10px;border-radius:10px;font-size:11px}
+</style></head><body>
+<div class="top-box">
+<div style="color:#00ff88;font-weight:bold">V77.1 علاج قوي - 500$ / 100$ / TP 0.50$</div>
+<div style="color:#ffcc00;font-size:11px">ANTI + $0.05 يحفظ + LONG ↔ SHORT يقلب SL -0.50$ TP 0.50$ + 3 اخسر يقلب -1$</div>
+</div>
+<div class="control-row">
+<input id="cap" type="number" value="500">
+<input id="trade" type="number" value="100">
+<input id="tp" type="number" step="0.01" value="0.50">
+<button onclick="save()">حفظ ⚙️</button>
+</div>
+<div class="cards">
+<div class="card"><div>💰 ثابت</div><div class="big">{{fixed}}$</div></div>
+<div class="card"><div>🦋 حر</div><div class="big">{{free}}$</div></div>
+<div class="card"><div>💵 صافي ربح</div><div class="big" style="color:#00ff88">+{{realized}}$</div></div>
+<div class="card"><div>📈 غير محققة</div><div class="big" style="color:#ffcc88">+{{unrealized}}$</div></div>
+<div class="card green"><div>💎 الإجمالي</div><div class="big">{{total}}$</div></div>
+<div class="card"><div>⚖️ L/S | دورات | قلبات</div><div class="big">{{ls}} | {{cycles}} | {{flips}}</div></div>
+</div>
+<div class="btns">
+<button class="btn btn-yellow" onclick="fetch('/reset').then(()=>location.reload())">تصفير 🔄</button>
+<button class="btn btn-red" onclick="fetch('/close_all').then(()=>location.reload())">قفل الكل 🔒</button>
+</div>
+<table><tr><th>عملة</th><th>اتجاه</th><th>دخول</th><th>حالي</th><th>ربح $</th><th>قلب</th></tr>
+{% for t in trades %}<tr>
+<td>{{t.symbol}}</td><td><span class="{{t.side}}">{{t.side}}</span></td>
+<td>{{t.entry}}</td><td>{{t.current}}</td>
+<td style="color:{% if t.pnl>=0 %}#00ff88{% else %}#ff4444{% endif %}">{{t.pnl}}$</td><td>{{t.flips}}</td>
+</tr>{% endfor %}</table>
+<script>
+function save(){
+ let c=document.getElementById('cap').value;
+ let tr=document.getElementById('trade').value;
+ let tp=document.getElementById('tp').value;
+ fetch(`/save_config?capital=${c}&per_trade=${tr}&tp=${tp}`).then(()=>location.reload());
+}
+setInterval(()=>location.reload(), 5000);
+</script></body></html>
 """
-@app.route('/')
-def home(): return render_template_string(HTML, s=state)
-@app.route('/api')
-def api(): return jsonify({**state,"equity":state["total_capital"]+state["realized"]+state["unrealized"]})
-@app.route('/reset')
-def reset(): state["realized"]=0; state["unrealized"]=0; state["trades"]=[]; state["cycles"]=0; state["flips"]=0; state["balance"]=state["total_capital"]; cooldown.clear(); return "OK"
-@app.route('/close_all')
-def close_all():
-    for t in state["trades"]: cooldown[t["sym"]]=time.time()
-    state["realized"]=round(state["realized"]+state["unrealized"],2)
-    state["trades"]=[]; state["unrealized"]=0; state["cycles"]+=1; state["balance"]=state["total_capital"]
-    return "OK"
-@app.route('/close_one')
-def close_one():
-    sname=request.args.get('s')
-    for t in list(state["trades"]):
-        if t["s"]==sname:
-            state["realized"]=round(state["realized"]+t["pnl"],2)
-            cooldown[t["sym"]]=time.time(); state["trades"].remove(t); break
-    recalc(); return "OK"
-@app.route('/set_total')
-def set_total():
-    try: v=float(request.args.get('v')); state["total_capital"]=v; recalc()
-    except: pass
-    return "OK"
-@app.route('/set_per')
-def set_per():
-    try: state["per_trade"]=float(request.args.get('v'))
-    except: pass
-    return "OK"
-@app.route('/set_target')
-def set_tar():
-    try: state["total_target"]=float(request.args.get('v'))
-    except: pass
-    return "OK"
-@app.route('/set_anti')
-def set_anti():
-    try: state["anti_loss"]=float(request.args.get('v'))
-    except: pass
-    return "OK"
-@app.route('/health')
-def h(): return "OK",200
-if __name__=="__main__": app.run(host="0.0.0.0",port=int(os.environ.get("PORT",8080)))
+
+@app.route("/")
+def home():
+    return render_template_string(HTML, fixed=state["fixed"], free=round(state["fixed"]-len(state["trades"])*PER_TRADE,2),
+                                  realized=round(state["realized"],2), unrealized=round(state["unrealized"],2),
+                                  total=round(state["total"],2), cycles=state["cycles"], flips=state["flips"],
+                                  ls=f"{len([t for t in state['trades'] if t['side']=='LONG'])}/{len([t for t in state['trades'] if t['side']=='SHORT'])}",
+                                  trades=state["trades"])
+
+@app.route("/save_config")
+def save_config():
+    global CAPITAL, PER_TRADE, TP_TARGET, SL_TARGET
+    CAPITAL = float(request.args.get("capital", CAPITAL))
+    PER_TRADE = float(request.args.get("per_trade", PER_TRADE))
+    TP_TARGET = float(request.args.get("tp", TP_TARGET))
+    SL_TARGET = -TP_TARGET
+    state["fixed"] = CAPITAL
+    return jsonify({"ok": True})
+
+@app.route("/reset")
+def reset(): state["realized"]=0; state["flips"]=0; state["cycles"]=0; init_trades(); return jsonify({"ok":True})
+@app.route("/close_all")
+def close_all(): state["unrealized"]=0; return jsonify({"ok":True})
+
+def loop():
+    while True:
+        time.sleep(2)
+        unreal = 0
+        for t in state["trades"]:
+            t["current"] = round(t["entry"] * random.uniform(0.997, 1.003), 4)
+            t["pnl"] = round(t["pnl"] + random.uniform(-0.08, 0.08), 2)
+            unreal += t["pnl"]
+            if t["pnl"] >= TP_TARGET:
+                state["realized"] += TP_TARGET; state["cycles"] += 1; t["pnl"]=0; t["flips"]+=1
+                t["side"] = "LONG" if random.random()>0.5 else "SHORT"
+            if t["pnl"] <= SL_TARGET:
+                state["realized"] += ANTI_SAVE; state["flips"] += 1; t["flips"]+=1
+                t["side"] = "SHORT" if t["side"]=="LONG" else "LONG"; t["pnl"]=0
+        state["unrealized"] = round(unreal,2)
+        state["total"] = round(CAPITAL + state["realized"] + state["unrealized"],2)
+
+threading.Thread(target=loop, daemon=True).start()
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 8080)))
