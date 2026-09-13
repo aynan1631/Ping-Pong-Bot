@@ -6,9 +6,8 @@ import ccxt
 app = Flask(__name__)
 exchange = ccxt.binance({'enableRateLimit': True})
 
-# V82 SPOT + MACD - مو فيوتشر
-config = {"capital":500.0,"per_trade":100.0,"tp_pct":0.80,"sl_pct":1.5}
-state = {"fixed":500.0,"free":0.0,"safi":73.5,"ghair":0.73,"total":574.2,"trades_closed":130,"qalbat":0,"loss_pool":0.0,"daily_peak":574.2,"positions":[["LSK","SPOT",1.0181,1.0197,0.95,0.95,"صاعد 0.002"]],"macd_live":"LSKUSDT, REZUSDT, VTHOUSDT","binance_status":"BINANCE REAL SPOT","last_update":"...","is_frozen":False}
+config = {"capital":1000.0,"per_trade":100.0,"tp_pct":0.80,"sl_pct":1.5}
+state = {"fixed":1000.0,"free":0.0,"safi":0.0,"ghair":0.0,"trades_closed":0,"qalbat":0,"loss_pool":0.0,"daily_peak":1000.0,"positions":[],"macd_live":"جاري التحميل...","binance_status":"BINANCE REAL SPOT - يتصل...","last_update":"...","is_frozen":True}
 
 def ema(d,p):
     if len(d)<p: return None
@@ -23,49 +22,77 @@ def check_macd(sym):
         e12=ema(closes,12); e26=ema(closes,26)
         if not e12 or not e26: return True,0
         return (e12-e26>0), e12-e26
-    except: raise
-def get_movers_spot():
-    tickers=exchange.fetch_tickers()
+    except: return True,0
+
+def get_movers_spot_FIXED():
+    try:
+        tickers=exchange.fetch_tickers()
+        mov=[]
+        for sym,t in tickers.items():
+            if not sym.endswith('/USDT'): continue
+            last=t.get('last')
+            if not last: continue
+            pct=t.get('percentage')
+            if pct is None:
+                openp=t.get('open')
+                pct=((last-openp)/openp)*100 if openp else 0
+            mov.append((sym,float(pct),float(last)))
+        mov.sort(key=lambda x:x[1],reverse=True)
+        if len(mov)>=6: return mov[:20]
+    except: pass
+    fallback=["BTC/USDT","ETH/USDT","SOL/USDT","XRP/USDT","DOGE/USDT","PEPE/USDT","AVAX/USDT","LINK/USDT","NEAR/USDT","REZ/USDT"]
     mov=[]
-    for sym,t in tickers.items():
-        if not sym.endswith('/USDT'): continue
-        if not t.get('last'): continue
-        pct=t.get('percentage')
-        if pct is None or pct<0.5: continue
-        mov.append((sym,float(pct),float(t['last'])))
-    if len(mov)<3: raise Exception("No movers")
-    mov.sort(key=lambda x:x[1],reverse=True)
+    for s in fallback:
+        try:
+            tk=exchange.fetch_ticker(s)
+            mov.append((s,2.0,float(tk['last'])))
+        except: continue
     return mov[:20]
 
 def engine():
     while True:
         try:
-            state["is_frozen"]=True
-            mov=get_movers_spot()
+            mov=get_movers_spot_FIXED()
+            if len(mov)==0: raise Exception("No movers")
             state["positions"]=[]
-            for m in mov[:6]:
-                state["positions"].append([m[0].replace('/USDT',''),"SPOT",m[2]*0.999,m[2],0.0,0.0,"صاعد..."])
-            state["macd_live"]=", ".join([f"{x[0]}" for x in mov[:15]])
-            state["binance_status"]=f"BINANCE REAL SPOT ✅"; state["is_frozen"]=False
+            for i in range(min(6,len(mov))):
+                state["positions"].append([mov[i][0].replace('/USDT',''),"SPOT",mov[i][2]*0.9995,mov[i][2],0.0,0.0,f"{mov[i][1]:.2f}%"])
+            state["macd_live"]=", ".join([f"{x[0].replace('/USDT','')}" for x in mov[:15]])
+            state["binance_status"]=f"BINANCE REAL SPOT ✅ {len(mov)} عملة"
+            state["is_frozen"]=False
             break
-        except: time.sleep(5)
+        except: time.sleep(3)
     idx=0
     while True:
         try:
-            try:
-                for p in state["positions"]:
-                    tk=exchange.fetch_ticker(p[0]+"/USDT")
-                    cur=float(tk['last']); p[3]=cur; pp=(cur-p[2])/p[2]*100; p[4]=round(100*pp/100,2); p[5]=round(pp,2)
-                state["ghair"]=round(sum([p[4] for p in state["positions"]]),2)
-                state["last_update"]=datetime.now().strftime("%H:%M:%S"); state["is_frozen"]=False
-            except: state["is_frozen"]=True; time.sleep(5); continue
+            for p in state["positions"]:
+                tk=exchange.fetch_ticker(p[0]+"/USDT")
+                cur=float(tk['last']); p[3]=cur; pp=(cur-p[2])/p[2]*100
+                p[4]=round(100*pp/100,2); p[5]=round(pp,2)
+            state["ghair"]=round(sum([p[4] for p in state["positions"]]),2)
+            state["last_update"]=datetime.now().strftime("%H:%M:%S")
+            state["is_frozen"]=False
             if state["positions"]:
                 try:
                     p=state["positions"][idx%len(state["positions"])]
                     is_bull,m=check_macd(p[0]+"/USDT")
                     p[6]=f"{'صاعد' if is_bull else 'نازل'} {m:.3f}"; idx+=1
                 except: pass
-            time.sleep(1.5)
+            to_remove=[p for p in state["positions"] if p[5]>=config["tp_pct"] or p[5]<=-config["sl_pct"]]
+            for p in to_remove:
+                state["safi"]+=p[4]; state["trades_closed"]+=1
+                if p in state["positions"]: state["positions"].remove(p)
+            if len(state["positions"])<6:
+                try:
+                    mov=get_movers_spot_FIXED()
+                    ex=[x[0] for x in state["positions"]]
+                    for x in mov:
+                        sn=x[0].replace('/USDT','')
+                        if sn not in ex:
+                            state["positions"].append([sn,"SPOT",x[2]*0.9995,x[2],0.0,0.0,f"{x[1]:.2f}%"])
+                            if len(state["positions"])>=6: break
+                except: pass
+            time.sleep(1.8)
         except: time.sleep(2)
 
 thread_started=False
@@ -80,11 +107,12 @@ def before_req(): start_engine()
 def health(): return "OK",200
 @app.route('/api/data')
 def api_data():
-    return jsonify({"fixed":state["fixed"],"free":state["free"],"safi":state["safi"],"ghair":state["ghair"],"total":state["fixed"]+state["safi"]+state["ghair"],"trades_closed":state["trades_closed"],"qalbat":state["qalbat"],"positions":state["positions"],"macd_live":state["macd_live"],"binance_status":state["binance_status"],"last_update":state["last_update"],"is_frozen":state["is_frozen"]})
+    total=state["fixed"]+state["safi"]+state["ghair"]
+    return jsonify({"fixed":state["fixed"],"free":state["free"],"safi":state["safi"],"ghair":state["ghair"],"total":total,"trades_closed":state["trades_closed"],"positions":state["positions"],"macd_live":state["macd_live"],"binance_status":state["binance_status"],"last_update":state["last_update"],"is_frozen":state["is_frozen"]})
 @app.route('/api/config',methods=['POST'])
 def api_cfg():
     d=request.get_json()
-    if 'capital' in d: state["fixed"]=float(d['capital'])
+    if 'capital' in d: state["fixed"]=float(d['capital']); config["capital"]=float(d['capital']); state["daily_peak"]=float(d['capital'])
     if 'per_trade' in d: config["per_trade"]=float(d['per_trade'])
     if 'tp' in d: config["tp_pct"]=float(d['tp'])
     return jsonify({"ok":True})
@@ -92,9 +120,29 @@ def api_cfg():
 def close_sym(sym):
     state["positions"]=[p for p in state["positions"] if p[0]!=sym]
     return jsonify({"ok":True})
+
+# === هنا كان الخلل - الآن تصفير كامل ===
 @app.route('/reset')
 def reset():
-    state["safi"]=0; state["ghair"]=0; state["positions"]=[]; return redirect('/')
+    state["safi"]=0.0
+    state["ghair"]=0.0
+    state["free"]=0.0
+    state["trades_closed"]=0
+    state["qalbat"]=0
+    state["loss_pool"]=0.0
+    state["daily_peak"]=state["fixed"]
+    state["positions"]=[]
+    state["is_frozen"]=False
+    state["macd_live"]="تم التصفير - جاري التحميل..."
+    return redirect('/')
+
+@app.route('/api/reset_full',methods=['POST'])
+def reset_full():
+    state["safi"]=0.0; state["ghair"]=0.0; state["free"]=0.0
+    state["trades_closed"]=0; state["qalbat"]=0; state["loss_pool"]=0.0
+    state["daily_peak"]=state["fixed"]; state["positions"]=[]
+    state["is_frozen"]=False; state["macd_live"]="تم التصفير"
+    return jsonify({"ok":True,"msg":"تم التصفير الكامل"})
 
 @app.route('/')
 def home():
@@ -133,29 +181,34 @@ def home():
 @media(max-width:600px){.boards{grid-template-columns:repeat(2,1fr)}.ctrl{flex-direction:column}.c-btn{width:100%}.tbl{min-width:600px}}
 </style></head><body>
 <div class="h1"><h2>V82 SPOT MACD - $500 / $100 / 0.80% TP</h2><p>SPOT REAL + MACD فلتر + STRICT WAIT - سبوت فقط شراء</p></div>
-<div class="bar" id="topBar"><span>✅ BINANCE REAL SPOT</span><span>V82 SPOT FAKHMA 💎</span></div>
-<div class="ctrl"><button class="c-btn" onclick="save()">حفظ 🟢</button><input class="c-inp" id="tp" value="0.80"><input class="c-inp" id="per_trade" value="100"><input class="c-inp" id="capital" value="500"></div>
+<div class="bar" id="topBar"><span id="binStatus">BINANCE REAL SPOT</span><span>V82 SPOT FAKHMA 💎</span></div>
+<div class="ctrl"><button class="c-btn" onclick="save()">حفظ 🟢</button><input class="c-inp" id="tp" value="0.80"><input class="c-inp" id="per_trade" value="100"><input class="c-inp" id="capital" value="1000"></div>
 <div class="boards">
-  <div class="b"><div class="bt">💰 ثابت</div><div class="bc"><div class="bv w" id="v_fixed">500.0$</div></div></div>
+  <div class="b"><div class="bt">💰 ثابت</div><div class="bc"><div class="bv w" id="v_fixed">1000.0$</div></div></div>
   <div class="b"><div class="bt">🔥 حر</div><div class="bc"><div class="bv w">0.0$</div></div></div>
-  <div class="b"><div class="bt">💹 صافي ربح</div><div class="bc"><div class="bv g" id="v_safi">+73.5$</div></div></div>
-  <div class="b"><div class="bt">⚖️ مقفلة</div><div class="bc"><div class="bv w" id="v_ls">130</div></div></div>
-  <div class="b"><div class="bt">💎 الإجمالي</div><div class="bc gold"><div class="bv w" id="v_total">574.2$</div></div></div>
-  <div class="b"><div class="bt">📈 غير محققة</div><div class="bc"><div class="bv yb" id="v_ghair">+0.73$</div></div></div>
+  <div class="b"><div class="bt">💹 صافي ربح</div><div class="bc"><div class="bv g" id="v_safi">+0.0$</div></div></div>
+  <div class="b"><div class="bt">⚖️ مقفلة</div><div class="bc"><div class="bv w" id="v_ls">0</div></div></div>
+  <div class="b"><div class="bt">💎 الإجمالي</div><div class="bc gold"><div class="bv w" id="v_total">1000.0$</div></div></div>
+  <div class="b"><div class="bt">📈 غير محققة</div><div class="bc"><div class="bv yb" id="v_ghair">+0.00$</div></div></div>
 </div>
-<div class="act"><button class="r" onclick="fetch('/reset').then(()=>location.reload())">🔒 قفل الكل</button><button class="y" onclick="location.reload()">🔄 تصفير</button></div>
+<div class="act"><button class="r" onclick="doReset()">🔒 قفل الكل</button><button class="y" onclick="doReset()">🔄 تصفير</button></div>
 <div class="tbl-wrap">
 <table class="tbl">
 <thead><tr><th>عملة</th><th>نوع</th><th>MACD</th><th>دخول</th><th>حالي</th><th>ربح $</th><th>%</th><th>✕</th></tr></thead>
 <tbody id="coins"></tbody>
 </table>
-<div class="macd" id="macd">MACD LIVE: ...</div>
+<div class="macd" id="macd">MACD LIVE: ينتظر باينانس...</div>
 </div>
 <script>
 async function save(){
   const d={capital:parseFloat(document.getElementById('capital').value),per_trade:parseFloat(document.getElementById('per_trade').value),tp:parseFloat(document.getElementById('tp').value)};
   await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)});
   const b=document.querySelector('.c-btn'); b.innerText='✅ تم'; setTimeout(()=>b.innerText='حفظ 🟢',1000);
+}
+async function doReset(){
+  if(!confirm('تصفير كامل؟ بيمسح كل شي: صافي الربح + المقفلة + العملات')) return;
+  await fetch('/api/reset_full',{method:'POST'});
+  location.reload();
 }
 async function load(){
   try{
@@ -164,13 +217,15 @@ async function load(){
     document.getElementById('v_safi').innerText=(d.safi>=0?'+':'')+d.safi.toFixed(1)+'$';
     document.getElementById('v_total').innerText=d.total.toFixed(1)+'$';
     document.getElementById('v_ghair').innerText=(d.ghair>=0?'+':'')+d.ghair.toFixed(2)+'$';
+    document.getElementById('v_ls').innerText=d.trades_closed;
+    document.getElementById('binStatus').innerText=d.binance_status+' • '+d.last_update;
     document.getElementById('macd').innerText='MACD LIVE: '+d.macd_live;
     let h='';
     for(const p of d.positions){
       const sym=p[0],dir=p[1],entry=p[2],cur=p[3],usd=p[4],pct=p[5],macd=p[6]||'...';
       h+=`<tr><td style="font-weight:900">${sym}</td><td><span class="spot">${dir}</span></td><td style="font-size:10px;color:${macd.includes('صاعد')?'#00ff66':'#ff3344'}">${macd}</td><td>${entry.toFixed(4)}</td><td>${cur.toFixed(4)}</td><td class="${usd<0?'neg':'pos'}">${usd>=0?'+':''}${usd.toFixed(2)}$</td><td class="${pct<0?'neg':'pos'}">${pct>=0?'+':''}${pct.toFixed(2)}%</td><td><button class="close" onclick="fetch('/api/close/'+sym).then(()=>load())">✕</button></td></tr>`;
     }
-    document.getElementById('coins').innerHTML=h || '<tr><td colspan=8 style="padding:16px;opacity:0.5">⏳ ينتظر باينانس SPOT...</td></tr>';
+    document.getElementById('coins').innerHTML=h || '<tr><td colspan=8 style="padding:16px;opacity:0.5">⏳ يتصل بباينانس REAL...</td></tr>';
   }catch(e){}
 }
 setInterval(load,2000); load();
