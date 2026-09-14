@@ -56,7 +56,7 @@ def get_movers_fast():
         mov.sort(key=lambda x:x[1],reverse=True)
         return mov[:25]
     except:
-        return [("BTC/USDT",2,65000),("ETH/USDT",2,3000),("SOL/USDT",2,150),("PEPE/USDT",5,0.00001)]
+        return [("BTC/USDT",2,65000),("ETH/USDT",2,3000),("SOL/USDT",2,150)]
 
 def engine():
     global ALLOW_NEW_TRADES
@@ -187,15 +187,7 @@ def api_data():
     healed=state["doctor_stats"]["healed"]
     total_cases=healed+len(state["treatment_positions"])+state["doctor_stats"]["failed"]
     heal_rate=round((healed/total_cases*100) if total_cases>0 else 0,1)
-    return jsonify({
-        "fixed":state["fixed"],"free":state["free"],"safi":state["safi"],"ghair":state["ghair"],"total":total,
-        "trades_closed":state["trades_closed"],"loss_pool":state["loss_pool"],"treatment_count":state["treatment_count"],
-        "positions":[[p[0],p[1],p[2],p[3],p[4],p[5],p[6]] for p in state["positions"]],
-        "treatment_positions":[[p[0],p[1],p[2],p[3],p[4],p[5],p[6],p[9],p[10]] for p in state["treatment_positions"]],
-        "binance_status":state["binance_status"],"last_update":state["last_update"],"instant_target":config["instant_target"],
-        "doctor":state["doctor_stats"],"heal_rate":heal_rate,"allow_new":ALLOW_NEW_TRADES,
-        "compound":COMPOUND,"per_trade":config["per_trade"]
-    })
+    return jsonify({"fixed":state["fixed"],"free":state["free"],"safi":state["safi"],"ghair":state["ghair"],"total":total,"trades_closed":state["trades_closed"],"loss_pool":state["loss_pool"],"treatment_count":state["treatment_count"],"positions":[[p[0],p[1],p[2],p[3],p[4],p[5],p[6]] for p in state["positions"]],"treatment_positions":[[p[0],p[1],p[2],p[3],p[4],p[5],p[6],p[9],p[10]] for p in state["treatment_positions"]],"binance_status":state["binance_status"],"last_update":state["last_update"],"instant_target":config["instant_target"],"doctor":state["doctor_stats"],"heal_rate":heal_rate,"allow_new":ALLOW_NEW_TRADES,"compound":COMPOUND,"per_trade":config["per_trade"]})
 @app.route('/api/config',methods=['POST'])
 def api_cfg():
     d=request.get_json()
@@ -275,8 +267,6 @@ async function load(){
     document.getElementById('healed').innerText=d.doctor.healed;
     document.getElementById('healProfit').innerText='+'+d.doctor.total_healed_profit.toFixed(2)+'$';
     document.getElementById('healRate').innerText=d.heal_rate+'%';
-    let rateEl=document.getElementById('healRate');
-    if(d.heal_rate>=80) rateEl.style.color='#00ff66'; else if(d.heal_rate>=50) rateEl.style.color='#ffcc00'; else rateEl.style.color='#ff3344';
     let mins=Math.floor((Date.now()/1000 - d.doctor.start_time));
     let m=Math.floor(mins/60); let s=mins%60;
     document.getElementById('docTime').innerText=m+'د '+s+'ث';
