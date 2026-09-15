@@ -1,12 +1,12 @@
 """
-V96.5 LUXURY RESPONSIVE - نفس V96.4 + تصغير مستطيلات جوال/لابتوب + ارقام انجليزية 1234
+V96.7 FINAL - نسختك + Responsive + ارقام 1234 + اصلاح 5100% + BINANCE اساس
 """
 from flask import Flask, jsonify, request
 import threading, time, os, requests
 app = Flask(__name__)
 
 config={"capital":1000.0,"per_trade":100.0,"target_dollar":0.5,"sl_pct":0.5,"hospital_cap":30,"max_pos":8,"min_vol":2000000,"doctor_enabled":True,"doctor_auto":True,"doctor_threshold":2,"doctor_extra":0.07,"doctor_sl":0.3,"max_doctors":3}
-state={"fixed":1000.0,"safi":0.0,"ghair":0.0,"trades_closed":0,"loss_pool":0.0,"positions":[],"treatment":[],"doctor_positions":[],"binance_status":"V96.5 LUXURY","data_source":"V96.5 LUXURY DUAL","is_running":True,"doctor":{"healed":0,"profit":0.0,"start":time.time(),"rate":99.5,"active_patient":None,"active_doctor":None},"specialty":False,"last":"V96.5 Luxury Ready","healing_mode":False}
+state={"fixed":1000.0,"safi":0.0,"ghair":0.0,"trades_closed":0,"loss_pool":0.0,"positions":[],"treatment":[],"doctor_positions":[],"binance_status":"V96.7 LUXURY","data_source":"V96.7 LUXURY DUAL","is_running":True,"doctor":{"healed":0,"profit":0.0,"start":time.time(),"rate":99.5,"active_patient":None,"active_doctor":None},"specialty":False,"last":"V96.7 Ready","healing_mode":False}
 
 def ema(data, period):
     if len(data)<period: return None
@@ -36,49 +36,64 @@ def get_binance_hot():
             sym=t["symbol"].replace("USDT","")
             if len(sym)>10: continue
             pct=float(t["priceChangePercent"]); price=float(t["lastPrice"]); vol=float(t["quoteVolume"])
+            if price < 0.0000005: continue
             is_bull, power = check_macd(sym)
             if pct>-2: hot.append((sym,pct,price,vol,power,is_bull,"BINANCE"))
         hot.sort(key=lambda x: (x[4] if x[5] else -10) + x[1]*0.1, reverse=True)
         return hot[:15]
     except: return []
 
+def get_binance_price(sym):
+    try:
+        r=requests.get(f"https://api.binance.com/api/v3/ticker/price?symbol={sym}USDT", timeout=2)
+        if r.status_code==200:
+            p=float(r.json()["price"])
+            if p>0.0000001: return p
+    except: pass
+    return None
+
 def get_tradingview_doctors(exclude=[], limit=3):
     candidates=[]
     try:
-        payload={"filter":[{"left":"change","operation":"nempty"},{"left":"change","operation":"greater","right":1},{"left":"volume","operation":"greater","right":1000000}],"options":{"lang":"en"},"symbols":{"query":{"types":[]},"tickers":[]},"columns":["name","close","change","volume","RSI","MACD.signal","Recommend.All"],"sort":{"sortBy":"change","sortOrder":"desc"},"range":[0,50]}
+        payload={"filter":[{"left":"change","operation":"nempty"},{"left":"change","operation":"greater","right":1.5},{"left":"volume","operation":"greater","right":1000000}],"options":{"lang":"en"},"symbols":{"query":{"types":[]},"tickers":[]},"columns":["name","close","change","volume","RSI","MACD.signal","Recommend.All"],"sort":{"sortBy":"change","sortOrder":"desc"},"range":[0,60]}
         r=requests.post("https://scanner.tradingview.com/crypto/scan", json=payload, timeout=6)
         if r.status_code==200:
-            for row in r.json().get("data",[])[:50]:
+            for row in r.json().get("data",[])[:60]:
                 d=row.get("d",[])
                 if len(d)<4: continue
                 name=str(d[0]).replace("BINANCE:","").replace("USDT","")
                 if name in exclude or len(name)>10: continue
-                close=float(d[1]) if d[1] else 0
                 change=float(d[2]) if d[2] else 0
                 vol=float(d[3]) if d[3] else 0
                 rec=float(d[6]) if len(d)>6 and d[6] else 0
-                if change>=1.0 and rec>-0.2:
+                if change>=1.5 and rec>-0.3:
+                    real_price=get_binance_price(name)
+                    if not real_price or real_price < 0.0000005: continue
                     score=change*6 + rec*10 + vol/10000000
-                    candidates.append((name,change,close,vol,rec,True,score,"TRADINGVIEW"))
+                    candidates.append((name,change,real_price,vol,rec,True,score,"TRADINGVIEW"))
     except: pass
     if len(candidates)<limit:
         try:
             r=requests.get("https://api.binance.com/api/v3/ticker/24hr", timeout=5)
             tickers=[t for t in r.json() if t["symbol"].endswith("USDT") and float(t["quoteVolume"])>3000000]
             tickers.sort(key=lambda x: float(x["priceChangePercent"]), reverse=True)
-            for t in tickers[:60]:
+            for t in tickers[:80]:
                 sym=t["symbol"].replace("USDT","")
                 if sym in exclude or len(sym)>10: continue
                 if any(c[0]==sym for c in candidates): continue
                 pct=float(t["priceChangePercent"]); price=float(t["lastPrice"]); vol=float(t["quoteVolume"])
-                if pct < 1.5: continue
+                if pct < 2.0 or price < 0.0000005: continue
                 is_bull, power = check_macd(sym)
-                if not is_bull and pct<3.0: continue
+                if not is_bull and pct<4.0: continue
                 score=pct*5 + power*100 + vol/10000000
                 candidates.append((sym,pct,price,vol,power,is_bull,score,"BINANCE+MOL3A"))
         except: pass
     candidates.sort(key=lambda x: x[6], reverse=True)
-    return [(c[0],c[1],c[2],c[3],c[4],c[5],c[7]) for c in candidates[:limit]]
+    seen=set(); res=[]
+    for c in candidates:
+        if c[0] not in seen and len(res)<limit:
+            res.append((c[0],c[1],c[2],c[3],c[4],c[5],c[7])); seen.add(c[0])
+    return res
 
 def engine():
     while True:
@@ -98,14 +113,19 @@ def engine():
                 needed = config["max_doctors"] - len(state["doctor_positions"])
                 exist = set([x[0] for x in state["positions"]+state["treatment"]+state["doctor_positions"]])
                 strongest_list = get_tradingview_doctors(list(exist), needed)
-                for idx, strongest in enumerate(strongest_list):
-                    if idx >= len(state["treatment"]): break
+                used_patients=set([d[9] for d in state["doctor_positions"]])
+                for strongest in strongest_list:
                     if len(state["doctor_positions"]) >= config["max_doctors"]: break
-                    oldest = state["treatment"][idx]; invoice = oldest[8]; target = invoice + config["doctor_extra"]
+                    target_patient=None
+                    for t in state["treatment"]:
+                        if t[0] not in used_patients:
+                            target_patient=t; break
+                    if not target_patient: break
+                    oldest=target_patient; invoice=oldest[8]; target=invoice+config["doctor_extra"]
                     sym,pct,price,vol,power,bull,source = strongest
-                    if sym not in exist:
+                    if sym not in exist and price>0.0000005:
                         state["doctor_positions"].append([sym, f"{source} -> {oldest[0]}", price*0.9995, price, 0.0, 0.0, f"{source} {pct:.1f}% -> {target:.2f}$", time.time(), invoice, oldest[0], source])
-                        state["last"]=f"{source} {sym} {pct:.1f}% Yoalej {oldest[0]}"; state["binance_status"]=f"{len(state['doctor_positions'])} MOL3AT {source}"; exist.add(sym)
+                        state["last"]=f"{source} {sym} {pct:.1f}% Yoalej {oldest[0]}"; state["binance_status"]=f"{len(state['doctor_positions'])} MOL3AT {source}"; exist.add(sym); used_patients.add(oldest[0])
             for d in state["doctor_positions"][:]:
                 try:
                     r=requests.get(f"https://api.binance.com/api/v3/ticker/price?symbol={d[0]}USDT", timeout=3)
@@ -190,7 +210,7 @@ def set_config():
 @app.route('/api/data')
 def api_data():
     total=state["fixed"]+state["safi"]+state["ghair"]-state["loss_pool"]; elapsed=int(time.time()-state["doctor"]["start"])
-    return jsonify({"fixed":state["fixed"],"safi":state["safi"],"ghair":state["ghair"],"total":round(total,3),"trades_closed":state["trades_closed"],"loss_pool":state["loss_pool"],"positions":state["positions"],"treatment":state["treatment"],"doctor_positions":state["doctor_positions"],"binance_status":state["binance_status"],"data_source":f"V96.5 LUXURY {len(state['treatment'])}/{config['hospital_cap']}","is_running":state["is_running"],"doctor":state["doctor"],"elapsed":elapsed,"heal_rate":99.5,"specialty":state["specialty"],"last_healed":state["last"],"config":config,"healing_mode":state["healing_mode"]})
+    return jsonify({"fixed":state["fixed"],"safi":state["safi"],"ghair":state["ghair"],"total":round(total,3),"trades_closed":state["trades_closed"],"loss_pool":state["loss_pool"],"positions":state["positions"],"treatment":state["treatment"],"doctor_positions":state["doctor_positions"],"binance_status":state["binance_status"],"data_source":f"V96.7 LUXURY {len(state['treatment'])}/{config['hospital_cap']}","is_running":state["is_running"],"doctor":state["doctor"],"elapsed":elapsed,"heal_rate":99.5,"specialty":state["specialty"],"last_healed":state["last"],"config":config,"healing_mode":state["healing_mode"]})
 
 @app.route('/')
 def home():
@@ -226,8 +246,8 @@ body{margin:0;background:radial-gradient(ellipse at top,#0A1931 0%,#060A14 70%);
 .badge{border-radius:10px;padding:3px 6px;font-size:8px;font-weight:800;display:inline-block;direction:ltr!important;font-family:'JetBrains Mono'}
 .foot{padding:6px 10px;font-size:9px;background:#020617;color:#D4AF37;display:flex;justify-content:space-between;font-family:'JetBrains Mono';direction:ltr;flex-wrap:wrap;gap:4px}
 </style></head><body>
-<div class="top" id="top"><span id="elapsed" lang="en" dir="ltr">0s</span><span id="rate" lang="en" dir="ltr">V96.5 - 0/30</span><span id="profit" lang="en" dir="ltr">+0.00$</span><span id="healed" lang="en" dir="ltr">0</span><span id="spec">جاهز</span></div>
-<div class="panel"><h3>👑 V96.5 LUXURY RESPONSIVE - الاساس BINANCE + المساعد TRADINGVIEW - ارقام 1234</h3>
+<div class="top" id="top"><span id="elapsed" lang="en" dir="ltr">0s</span><span id="rate" lang="en" dir="ltr">V96.7 - 0/30</span><span id="profit" lang="en" dir="ltr">+0.00$</span><span id="healed" lang="en" dir="ltr">0</span><span id="spec">جاهز</span></div>
+<div class="panel"><h3>👑 V96.7 LUXURY - الاساس BINANCE + المساعد TRADINGVIEW - ارقام 1234 - Responsive</h3>
 <div class="grid">
 <div class="box"><label>💰 راس المال $</label><input id="cap" lang="en" dir="ltr" inputmode="decimal" type="text" value="1000" onchange="save()"></div>
 <div class="box"><label>📦 حجم الصفقة $</label><input id="per" lang="en" dir="ltr" inputmode="decimal" type="text" value="100" onchange="save()"></div>
@@ -253,7 +273,7 @@ body{margin:0;background:radial-gradient(ellipse at top,#0A1931 0%,#060A14 70%);
 <div class="tbl"><div class="th" style="grid-template-columns:1.2fr 0.8fr 1.2fr 0.8fr 0.8fr 0.8fr 0.6fr"><div>العملة</div><div>النوع</div><div>الحالة</div><div>الدخول</div><div>الحالي</div><div>ربح $</div><div>%</div></div><div id="plist"></div></div>
 <div class="tbl" style="border-color:#22D3EE"><div class="th" style="grid-template-columns:1fr 1fr 0.6fr 0.6fr 0.6fr 0.8fr 0.6fr;background:#0E2A3A;color:#22D3EE"><div>🔥 طبيب TV</div><div>يعالج</div><div>الفاتورة</div><div>الهدف</div><div>الربح</div><div>الحالة</div><div>المصدر</div></div><div id="dlist"></div></div>
 <div class="tbl" style="border-color:#D4AF37"><div class="th" style="grid-template-columns:1fr 1.2fr 0.6fr 0.6fr 0.6fr 0.6fr;background:#2A1F0F;color:#D4AF37"><div>💊 المستشفى</div><div>يعالج</div><div>الخسارة</div><div>الهدف</div><div>الحالي</div><div>%</div></div><div id="tlist"></div></div>
-<div class="foot"><span lang="en" dir="ltr" id="src">V96.5 DUAL</span><span lang="en" dir="ltr" id="bin">...</span><span lang="en" dir="ltr" id="time">...</span></div>
+<div class="foot"><span lang="en" dir="ltr" id="src">V96.7 DUAL</span><span lang="en" dir="ltr" id="bin">...</span><span lang="en" dir="ltr" id="time">...</span></div>
 <script>
 function toEnglishDigits(str){ if(!str) return str; return str.toString().replace(/[٠-٩]/g, d => "٠١٢٣٤٥٦٧٨٩".indexOf(d)).replace(/[۰-۹]/g, d => "۰۱۲۳۴۵۶۷۸۹".indexOf(d)); }
 function en(n,d=2){ let num=Number(toEnglishDigits(n)); if(isNaN(num)) num=0; return num.toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d,useGrouping:false}); }
@@ -266,7 +286,7 @@ async function save(){
 }
 async function load(){ try{ const r=await fetch('/api/data'); const d=await r.json();
   document.getElementById('cap').value=en(d.config.capital,0); document.getElementById('per').value=en(d.config.per_trade,0); document.getElementById('targ').value=en(d.config.target_dollar,1); document.getElementById('hcap').value=en(d.config.hospital_cap,0);
-  document.getElementById('elapsed').innerText=en(d.elapsed,0)+'s'; document.getElementById('rate').innerText='V96.5 - '+en(d.treatment.length,0)+'/'+en(d.config.hospital_cap,0); document.getElementById('profit').innerText='+'+en(d.doctor.profit,2)+'$'; document.getElementById('healed').innerText=en(d.doctor.healed,0)+' شفى';
+  document.getElementById('elapsed').innerText=en(d.elapsed,0)+'s'; document.getElementById('rate').innerText='V96.7 - '+en(d.treatment.length,0)+'/'+en(d.config.hospital_cap,0); document.getElementById('profit').innerText='+'+en(d.doctor.profit,2)+'$'; document.getElementById('healed').innerText=en(d.doctor.healed,0)+' شفى';
   document.getElementById('f1').innerText=en(d.fixed,2)+'$'; document.getElementById('f2').innerText=en(d.loss_pool,2)+'$'; document.getElementById('f2c').innerText=en(d.treatment.length,0)+' دواء'; document.getElementById('f3').innerText='+'+en(d.safi,3)+'$'; document.getElementById('f5').innerText=en(d.total,3)+'$'; document.getElementById('f6').innerText='+'+en(d.ghair,3)+'$ / '+en(d.config.target_dollar,1)+'$';
   document.getElementById('btnRun').innerText=d.is_running?'⏸️ ايقاف':'▶️ تشغيل'; document.getElementById('btnDoc').innerText=d.config.doctor_enabled?'🔥 مولعة ON':'🔥 OFF';
   document.getElementById('src').innerText=d.data_source; document.getElementById('bin').innerText=d.binance_status; document.getElementById('time').innerText=new Date().toLocaleTimeString('en-GB',{hour12:false});
