@@ -1,14 +1,22 @@
 """
-V99.0 CLEAN - تنظيف ايقونات + نفس منطق V98.5 BAN
+V100 LEGEND - نفس V99.0 CLEAN + تكبير تلقائي + حماية صافي 5%
 صافي محفوظ 198$ / ثابت 1198$ + حظر ASTR/ASTAR/SAGA/FF
 """
 from flask import Flask, jsonify, request
 import threading, time, os, requests
 app = Flask(__name__)
 
-config={"capital":1000.0,"per_trade":100.0,"target_dollar":0.5,"sl_pct":0.35,"hospital_cap":30,"max_pos":8,"min_vol":2000000,"doctor_enabled":True,"doctor_auto":True,"doctor_threshold":2,"doctor_extra":0.04,"doctor_sl":1.0,"max_doctors":3}
+config={"capital":1000.0,"per_trade":100.0,"base_per_trade":100.0,"target_dollar":0.5,"sl_pct":0.35,"hospital_cap":30,"max_pos":8,"min_vol":2000000,"doctor_enabled":True,"doctor_auto":True,"doctor_threshold":2,"doctor_extra":0.04,"doctor_sl":1.0,"max_doctors":3,"auto_compound":True,"compound_step":50.0,"compound_add":25.0,"protect_pct":0.05}
 BANNED = {"ASTR","ASTAR","SAGA","FF"}
-state={"fixed":1198.0,"safi":198.0,"ghair":0.0,"trades_closed":0,"loss_pool":0.0,"positions":[],"treatment":[],"doctor_positions":[],"binance_status":"V99.0 CLEAN","data_source":"V99.0 CLEAN","is_running":True,"doctor":{"healed":0,"profit":0.0,"start":time.time(),"rate":99.5,"active_patient":None,"active_doctor":None},"specialty":False,"last":"V99.0 CLEAN","healing_mode":False}
+state={"fixed":1198.0,"safi":198.0,"max_safi":198.0,"ghair":0.0,"trades_closed":0,"loss_pool":0.0,"positions":[],"treatment":[],"doctor_positions":[],"binance_status":"V100 LEGEND","data_source":"V100 LEGEND","is_running":True,"doctor":{"healed":0,"profit":0.0,"start":time.time(),"rate":99.5,"active_patient":None,"active_doctor":None},"specialty":False,"last":"V100 LEGEND - تكبير+حماية","healing_mode":False,"protect_triggered":False}
+
+def get_dynamic_per_trade():
+    if not config["auto_compound"]:
+        return config["per_trade"]
+    # كل 50$ صافي = +25$ حجم
+    steps = int(state["safi"] // config["compound_step"])
+    bonus = steps * config["compound_add"]
+    return config["base_per_trade"] + bonus
 
 def ema(data, period):
     if len(data)<period: return None
@@ -99,6 +107,23 @@ def engine():
     while True:
         try:
             if not state["is_running"]: time.sleep(1); continue
+
+            # === V100 LEGEND: حماية الصافي 5% ===
+            if state["safi"] > state["max_safi"]:
+                state["max_safi"] = state["safi"]
+            if state["max_safi"] > 10: # لا تفعل الحماية الا بعد 10$ ربح
+                if state["safi"] < state["max_safi"] * (1 - config["protect_pct"]) and not state["protect_triggered"]:
+                    state["is_running"] = False
+                    state["protect_triggered"] = True
+                    state["binance_status"] = f"🔒 حماية! نزل من {state['max_safi']:.1f}$ الى {state['safi']:.1f}$"
+                    state["last"] = f"حماية صافي 5% تفعلت - اعلى {state['max_safi']:.2f}$"
+                    time.sleep(1)
+                    continue
+
+            # === V100 LEGEND: حجم ديناميكي ===
+            dyn_per = get_dynamic_per_trade()
+            config["per_trade"] = dyn_per
+
             for p in state["treatment"][:]:
                 if p[0] in BANNED: state["treatment"].remove(p)
             for p in state["positions"][:]:
@@ -169,7 +194,12 @@ def engine():
             if len(state["treatment"]) >= config["hospital_cap"]: state["specialty"]=True; state["binance_status"]=f"زحمة {len(state['treatment'])}/30"
             else:
                 state["specialty"]=False
-                state["binance_status"]=f"شغال {len(state['positions'])}/8 - مستشفى {len(state['treatment'])}/30 - V99.0 CLEAN"
+                # V100 عرض حجم ديناميكي
+                dyn = get_dynamic_per_trade()
+                if state["protect_triggered"]:
+                    state["binance_status"]=f"🔒 حماية مفعلة - اعلى {state['max_safi']:.0f}$"
+                else:
+                    state["binance_status"]=f"V100 LEGEND {len(state['positions'])}/8 - حجم {dyn:.0f}$ - اعلى {state['max_safi']:.0f}$"
                 if len(state["positions"]) < config["max_pos"]:
                     hot=get_binance_hot(); exist=set([x[0] for x in state["positions"]+state["treatment"]+state["doctor_positions"]] + list(BANNED))
                     for sym,pct,price,vol,power,bull,src in hot:
@@ -182,13 +212,16 @@ threading.Thread(target=engine,daemon=True).start()
 def health(): return "OK",200
 @app.route('/api/control/<cmd>')
 def control(cmd):
-    if cmd=="toggle": state["is_running"]=not state["is_running"]
+    if cmd=="toggle":
+        state["is_running"]=not state["is_running"]
+        if state["is_running"]:
+            state["protect_triggered"]=False
     elif cmd=="lock":
         prof=sum(p[4] for p in state["positions"] if p[4]>0)
         if prof>0: state["safi"]+=prof; state["fixed"]=config["capital"]+state["safi"]; state["trades_closed"]+=len(state["positions"])
         state["positions"]=[]; state["ghair"]=0.0
-    elif cmd=="reset": state["fixed"]=config["capital"]; state["safi"]=0.0; state["ghair"]=0.0; state["loss_pool"]=0.0; state["trades_closed"]=0; state["positions"]=[]; state["treatment"]=[]; state["doctor_positions"]=[]; state["doctor"]={"healed":0,"profit":0.0,"start":time.time(),"rate":99.5,"active_patient":None,"active_doctor":None}; state["specialty"]=False; state["is_running"]=True; state["healing_mode"]=False
-    elif cmd=="safi_reset": state["safi"]=0.0; state["fixed"]=config["capital"]
+    elif cmd=="reset": state["fixed"]=config["capital"]; state["safi"]=0.0; state["max_safi"]=0.0; state["ghair"]=0.0; state["loss_pool"]=0.0; state["trades_closed"]=0; state["positions"]=[]; state["treatment"]=[]; state["doctor_positions"]=[]; state["doctor"]={"healed":0,"profit":0.0,"start":time.time(),"rate":99.5,"active_patient":None,"active_doctor":None}; state["specialty"]=False; state["is_running"]=True; state["healing_mode"]=False; state["protect_triggered"]=False
+    elif cmd=="safi_reset": state["safi"]=0.0; state["fixed"]=config["capital"]; state["max_safi"]=0.0
     elif cmd=="try":
         hot=get_binance_hot()
         if hot: s=hot[0]; state["positions"].append([s[0],"SPOT",s[2]*0.999,s[2],0.0,0.0,f"{s[1]:.1f}% BINANCE",time.time()])
@@ -196,7 +229,7 @@ def control(cmd):
     elif cmd=="heal":
         for p in state["treatment"][:]:
             if p[0] not in BANNED: state["treatment"].remove(p)
-        state["healing_mode"]=False; state["doctor_positions"]=[]; state["last"]="شفاء بدون خصم V99.0"
+        state["healing_mode"]=False; state["doctor_positions"]=[]; state["last"]="شفاء بدون خصم V100"
     elif cmd=="ban_clean":
         for p in state["treatment"][:]:
             if p[0] in BANNED: state["treatment"].remove(p)
@@ -210,6 +243,7 @@ def control(cmd):
         for d in state["doctor_positions"][:]:
             if d[0] in BANNED or d[9] in BANNED: state["doctor_positions"].remove(d)
     elif cmd=="doctor": config["doctor_enabled"]=not config["doctor_enabled"]; config["doctor_auto"]=config["doctor_enabled"]
+    elif cmd=="protect_reset": state["protect_triggered"]=False; state["max_safi"]=state["safi"]; state["is_running"]=True
     return jsonify({"ok":True})
 
 @app.route('/api/config', methods=['POST'])
@@ -217,7 +251,9 @@ def set_config():
     d=request.json
     try:
         if "capital" in d: config["capital"]=float(d["capital"])
-        if "per_trade" in d: config["per_trade"]=float(d["per_trade"])
+        if "per_trade" in d:
+            config["per_trade"]=float(d["per_trade"])
+            config["base_per_trade"]=float(d["per_trade"])
         if "target" in d: config["target_dollar"]=float(d["target"])
         if "target_dollar" in d: config["target_dollar"]=float(d["target_dollar"])
         if "hcap" in d: config["hospital_cap"]=int(float(d["hcap"]))
@@ -227,7 +263,8 @@ def set_config():
 @app.route('/api/data')
 def api_data():
     total=state["fixed"]+state["ghair"]-state["loss_pool"]; elapsed=int(time.time()-state["doctor"]["start"])
-    return jsonify({"fixed":state["fixed"],"safi":state["safi"],"ghair":state["ghair"],"total":round(total,3),"trades_closed":state["trades_closed"],"loss_pool":state["loss_pool"],"positions":state["positions"],"treatment":state["treatment"],"doctor_positions":state["doctor_positions"],"binance_status":state["binance_status"],"data_source":f"V99.0 CLEAN {len(state['treatment'])}/{config['hospital_cap']}","is_running":state["is_running"],"doctor":state["doctor"],"elapsed":elapsed,"heal_rate":99.5,"specialty":state["specialty"],"last_healed":state["last"],"config":config,"healing_mode":state["healing_mode"]})
+    dyn = get_dynamic_per_trade()
+    return jsonify({"fixed":state["fixed"],"safi":state["safi"],"max_safi":state["max_safi"],"dynamic_per_trade":dyn,"ghair":state["ghair"],"total":round(total,3),"trades_closed":state["trades_closed"],"loss_pool":state["loss_pool"],"positions":state["positions"],"treatment":state["treatment"],"doctor_positions":state["doctor_positions"],"binance_status":state["binance_status"],"data_source":f"V100 LEGEND حجم {dyn:.0f}$ اعلى {state['max_safi']:.0f}$","is_running":state["is_running"],"doctor":state["doctor"],"elapsed":elapsed,"heal_rate":99.5,"specialty":state["specialty"],"last_healed":state["last"],"config":config,"healing_mode":state["healing_mode"],"protect_triggered":state["protect_triggered"]})
 
 @app.route('/')
 def home():
@@ -264,11 +301,11 @@ body{margin:0;background:radial-gradient(ellipse at top,#0A1931 0%,#060A14 70%);
 .profit-neg{color:#FF3344!important;text-shadow:0 0 10px rgba(255,51,68,0.9);font-weight:900!important}
 .foot{padding:8px 12px;font-size:11px;background:#020617;color:#D4AF37;display:flex;justify-content:space-between;font-family:'JetBrains Mono';direction:ltr;flex-wrap:wrap;gap:4px}
 </style></head><body>
-<div class="top"><span id="elapsed">0s</span><span id="rate">V99.0 - 0/30</span><span id="profit">+0.00$</span><span id="healed">0</span><span id="spec">جاهز</span></div>
-<div class="panel"><h3>👑 V99.0 CLEAN - واجهة نظيفة 4 ازرار فقط ✨</h3>
+<div class="top"><span id="elapsed">0s</span><span id="rate">V100 - 0/30</span><span id="profit">+0.00$</span><span id="healed">0</span><span id="spec">جاهز</span></div>
+<div class="panel"><h3>👑 V100 LEGEND - تكبير تلقائي + حماية 5% 🛡️</h3>
 <div class="grid">
 <div class="box"><label>💰 راس المال $</label><input id="cap" type="text" value="1000" onchange="save()"></div>
-<div class="box"><label>📦 حجم الصفقة $</label><input id="per" type="text" value="100" onchange="save()"></div>
+<div class="box"><label>📦 حجم اساسي $</label><input id="per" type="text" value="100" onchange="save()"><div id="dynVal" style="font-size:10px;color:#00FF88;font-family:'JetBrains Mono';margin-top:3px;font-weight:900">ديناميكي 200$</div></div>
 <div class="box"><label>🎯 هدف القفل $</label><input id="targ" type="text" value="0.5" onchange="save()"><div id="targVal" style="font-size:11px;color:#FFD700;font-family:'JetBrains Mono';margin-top:4px;font-weight:900">0.5$</div></div>
 <div class="box"><label>🏥 سعة المستشفى</label><input id="hcap" type="text" value="30" onchange="save()"></div>
 </div></div>
@@ -281,14 +318,14 @@ body{margin:0;background:radial-gradient(ellipse at top,#0A1931 0%,#060A14 70%);
 <div class="cards">
 <div class="card"><div class="lab">💰 ثابت</div><div class="val" id="f1">1000.00$</div></div>
 <div class="card"><div class="lab">📦 الصيدلية</div><div class="val" id="f2">0.00$</div><div class="lab" id="f2c" style="font-size:10px">0 دواء</div></div>
-<div class="card safi"><div class="lab">💹 صافي محقق 🔒</div><div class="val g" id="f3">+0.000$</div></div>
+<div class="card safi"><div class="lab">💹 صافي محقق 🔒</div><div class="val g" id="f3">+0.000$</div><div id="maxSafi" style="font-size:10px;color:#FFD700;font-family:'JetBrains Mono'">اعلى 198$</div></div>
 <div class="card gold"><div class="lab">💎 الاجمالي</div><div class="val y" id="f5">1000.000$</div></div>
 <div class="card"><div class="lab">📈 غير محققة</div><div class="val" id="f6">+0.000$</div></div>
 </div>
 <div class="tbl"><div class="th" style="grid-template-columns:1.2fr 0.8fr 1.2fr 0.8fr 0.8fr 0.8fr 0.6fr"><div>العملة</div><div>النوع</div><div>الحالة</div><div>الدخول</div><div>الحالي</div><div>ربح $</div><div>%</div></div><div id="plist"></div></div>
 <div class="tbl" style="border-color:#22D3EE"><div class="th" style="grid-template-columns:1fr 1fr 0.6fr 0.6fr 0.6fr 0.8fr 0.6fr;background:#0E2A3A;color:#22D3EE"><div>🔥 طبيب TV</div><div>يعالج</div><div>الفاتورة</div><div>الهدف</div><div>الربح</div><div>الحالة</div><div>المصدر</div></div><div id="dlist"></div></div>
 <div class="tbl" style="border-color:#D4AF37"><div class="th" style="grid-template-columns:1fr 1.2fr 0.6fr 0.6fr 0.6fr 0.6fr;background:#2A1F0F;color:#D4AF37"><div>💊 المستشفى</div><div>يعالج</div><div>الخسارة</div><div>الهدف</div><div>الحالي</div><div>%</div></div><div id="tlist"></div></div>
-<div class="foot"><span id="src">V99.0 CLEAN</span><span id="bin">...</span><span id="time">...</span></div>
+<div class="foot"><span id="src">V100 LEGEND</span><span id="bin">...</span><span id="time">...</span></div>
 <script>
 function en(n,d=2){ let num=Number(n); if(isNaN(num)) num=0; return num.toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d,useGrouping:false}); }
 function colorClass(v){ return Number(v) >= 0? 'profit-pos' : 'profit-neg'; }
@@ -299,13 +336,18 @@ async function save(){
   const j=await res.json(); document.getElementById('targVal').innerText=en(j.config.target_dollar,1)+'$';
 }
 async function load(){ try{ const r=await fetch('/api/data'); const d=await r.json();
-  document.getElementById('cap').value=en(d.config.capital,0); document.getElementById('per').value=en(d.config.per_trade,0); document.getElementById('targ').value=en(d.config.target_dollar,1); document.getElementById('hcap').value=en(d.config.hospital_cap,0);
-  document.getElementById('elapsed').innerText=en(d.elapsed,0)+'s'; document.getElementById('rate').innerText='V99.0 - '+en(d.treatment.length,0)+'/'+en(d.config.hospital_cap,0); document.getElementById('profit').innerText='+'+en(d.doctor.profit,2)+'$'; document.getElementById('healed').innerText=en(d.doctor.healed,0)+' شفى';
+  document.getElementById('cap').value=en(d.config.capital,0); document.getElementById('per').value=en(d.config.base_per_trade||d.config.per_trade,0); document.getElementById('targ').value=en(d.config.target_dollar,1); document.getElementById('hcap').value=en(d.config.hospital_cap,0);
+  document.getElementById('elapsed').innerText=en(d.elapsed,0)+'s'; document.getElementById('rate').innerText='V100 - '+en(d.treatment.length,0)+'/'+en(d.config.hospital_cap,0); document.getElementById('profit').innerText='+'+en(d.doctor.profit,2)+'$'; document.getElementById('healed').innerText=en(d.doctor.healed,0)+' شفى';
   document.getElementById('f1').innerText=en(d.fixed,2)+'$'; document.getElementById('f2').innerText=en(d.loss_pool,2)+'$'; document.getElementById('f2c').innerText=en(d.treatment.length,0)+' دواء';
   let safiCls = Number(d.safi)>=0?'profit-pos':'profit-neg'; document.getElementById('f3').innerHTML='<span class="'+safiCls+'">+'+en(d.safi,3)+'$</span>';
+  document.getElementById('maxSafi').innerText='اعلى '+en(d.max_safi||d.safi,0)+'$ - حجم '+en(d.dynamic_per_trade||100,0)+'$';
+  document.getElementById('dynVal').innerText='ديناميكي '+en(d.dynamic_per_trade||100,0)+'$';
   document.getElementById('f5').innerText=en(d.total,3)+'$';
   let ghairCls = Number(d.ghair)>=0?'profit-pos':'profit-neg'; document.getElementById('f6').innerHTML='<span class="'+ghairCls+'">'+en(d.ghair,3)+'$ / '+en(d.config.target_dollar,1)+'$</span>';
-  document.getElementById('btnRun').innerText=d.is_running?'⏸️ ايقاف':'▶️ تشغيل'; document.getElementById('btnDoc').innerText=d.config.doctor_enabled?'🔥 مولعة ON':'🔥 OFF';
+  document.getElementById('btnRun').innerText=d.is_running?'⏸️ ايقاف':'▶️ تشغيل';
+  if(d.protect_triggered){ document.getElementById('btnRun').innerText='🔒 حماية'; document.getElementById('btnRun').style.background='#FF3344'; }
+  else { document.getElementById('btnRun').style.background='#10B981'; }
+  document.getElementById('btnDoc').innerText=d.config.doctor_enabled?'🔥 مولعة ON':'🔥 OFF';
   document.getElementById('src').innerText=d.data_source; document.getElementById('bin').innerText=d.binance_status; document.getElementById('time').innerText=new Date().toLocaleTimeString('en-GB',{hour12:false});
   let h=''; for(const p of d.positions){ let cls=colorClass(p[5]); let cls2=colorClass(p[4]); h+=`<div class="rw" style="grid-template-columns:1.2fr 0.8fr 1.2fr 0.8fr 0.8fr 0.8fr 0.6fr"><div style="color:#FFF;font-weight:900">${p[0]}</div><div><span class="badge" style="background:#38BDF8;color:#000">BIN</span></div><div class="${cls}" style="font-size:12px">${p[6]}</div><div style="color:#FFD700">${en(p[2],4)}</div><div style="color:#FFF">${en(p[3],4)}</div><div class="${cls2}">${en(p[4],3)}$</div><div class="${cls}">${en(p[5],2)}%</div></div>` } document.getElementById('plist').innerHTML=h||'<div style="padding:10px;text-align:center;color:#D4AF3760">⏳ BINANCE يطحن...</div>';
   let dl=''; for(const p of d.doctor_positions){ let cls=colorClass(p[5]); let invoice=en(p[8],2); let target=en(p[8]*0.60,2); let profitCls=colorClass(p[4]); dl+=`<div class="rw" style="grid-template-columns:1fr 1fr 0.6fr 0.6fr 0.6fr 0.8fr 0.6fr;background:#0E1E2E"><div><span class="badge" style="background:#D4AF37;color:#000">${p[0]}</span></div><div style="color:#FACC15;font-weight:800">${p[9]}</div><div style="color:#FB923C">${invoice}$</div><div style="color:#00FF88">${target}$</div><div class="${profitCls}">${en(p[4],3)}$</div><div class="${cls}" style="font-size:11px">${p[6]}</div><div><span class="badge" style="background:${(p[10]||'TV').includes('TRADINGVIEW')?'#22D3EE':'#D4AF37'};color:#000;font-size:8px">${(p[10]||'TV').substring(0,3)}</span></div></div>` } document.getElementById('dlist').innerHTML=dl||'<div style="padding:10px;text-align:center;background:#0E1E2E;color:#D4AF37">👑 0/30 فخامة ✅</div>';
