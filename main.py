@@ -1,12 +1,12 @@
 """
-V96.7 FINAL - نسختك + Responsive + ارقام 1234 + اصلاح 5100% + BINANCE اساس
+V97.0 FINAL CLEAN - نفس V96.7 + اصلاح 0.050$ + 1.00$ + Responsive + ارقام 1234
 """
 from flask import Flask, jsonify, request
 import threading, time, os, requests
 app = Flask(__name__)
 
 config={"capital":1000.0,"per_trade":100.0,"target_dollar":0.5,"sl_pct":0.5,"hospital_cap":30,"max_pos":8,"min_vol":2000000,"doctor_enabled":True,"doctor_auto":True,"doctor_threshold":2,"doctor_extra":0.07,"doctor_sl":0.3,"max_doctors":3}
-state={"fixed":1000.0,"safi":0.0,"ghair":0.0,"trades_closed":0,"loss_pool":0.0,"positions":[],"treatment":[],"doctor_positions":[],"binance_status":"V96.7 LUXURY","data_source":"V96.7 LUXURY DUAL","is_running":True,"doctor":{"healed":0,"profit":0.0,"start":time.time(),"rate":99.5,"active_patient":None,"active_doctor":None},"specialty":False,"last":"V96.7 Ready","healing_mode":False}
+state={"fixed":1000.0,"safi":0.0,"ghair":0.0,"trades_closed":0,"loss_pool":0.0,"positions":[],"treatment":[],"doctor_positions":[],"binance_status":"V97.0 LUXURY","data_source":"V97.0 LUXURY DUAL","is_running":True,"doctor":{"healed":0,"profit":0.0,"start":time.time(),"rate":99.5,"active_patient":None,"active_doctor":None},"specialty":False,"last":"V97.0 Ready","healing_mode":False}
 
 def ema(data, period):
     if len(data)<period: return None
@@ -110,9 +110,8 @@ def engine():
             if len(state["treatment"])==0 and len(state["doctor_positions"])==0: state["healing_mode"]=False
             if config["doctor_enabled"] and len(state["treatment"]) > 0 and len(state["doctor_positions"]) < config["max_doctors"]:
                 state["treatment"].sort(key=lambda x: x[8] if len(x)>8 else 0, reverse=True)
-                needed = config["max_doctors"] - len(state["doctor_positions"])
                 exist = set([x[0] for x in state["positions"]+state["treatment"]+state["doctor_positions"]])
-                strongest_list = get_tradingview_doctors(list(exist), needed)
+                strongest_list = get_tradingview_doctors(list(exist), config["max_doctors"])
                 used_patients=set([d[9] for d in state["doctor_positions"]])
                 for strongest in strongest_list:
                     if len(state["doctor_positions"]) >= config["max_doctors"]: break
@@ -121,11 +120,13 @@ def engine():
                         if t[0] not in used_patients:
                             target_patient=t; break
                     if not target_patient: break
-                    oldest=target_patient; invoice=oldest[8]; target=invoice+config["doctor_extra"]
+                    oldest=target_patient; invoice=oldest[8]
                     sym,pct,price,vol,power,bull,source = strongest
                     if sym not in exist and price>0.0000005:
-                        state["doctor_positions"].append([sym, f"{source} -> {oldest[0]}", price*0.9995, price, 0.0, 0.0, f"{source} {pct:.1f}% -> {target:.2f}$", time.time(), invoice, oldest[0], source])
-                        state["last"]=f"{source} {sym} {pct:.1f}% Yoalej {oldest[0]}"; state["binance_status"]=f"{len(state['doctor_positions'])} MOL3AT {source}"; exist.add(sym); used_patients.add(oldest[0])
+                        # FIX: الحالة نظيفة بدون ->0.050$
+                        status_text = f"{pct:.1f}% MOL3A"
+                        state["doctor_positions"].append([sym, source, price*0.9995, price, 0.0, 0.0, status_text, time.time(), invoice, oldest[0], source, pct])
+                        state["last"]=f"{source} {sym} {pct:.1f}% -> {oldest[0]}"; exist.add(sym); used_patients.add(oldest[0])
             for d in state["doctor_positions"][:]:
                 try:
                     r=requests.get(f"https://api.binance.com/api/v3/ticker/price?symbol={d[0]}USDT", timeout=3)
@@ -157,7 +158,10 @@ def engine():
             to_hosp=[p for p in state["positions"] if p[5] <= -config["sl_pct"]]
             for p in to_hosp:
                 if p in state["positions"]:
-                    state["positions"].remove(p); state["treatment"].append([p[0],"علاج",p[2],p[3],0.0,0.0,0.35,f"{p[0]} يعالج {abs(p[4]):.2f}$",abs(p[4]),1.0])
+                    state["positions"].remove(p)
+                    # FIX: الهدف كان 1.0 ثابت - الآن سعر الشفاء الحقيقي
+                    target_price = p[2] * 0.995
+                    state["treatment"].append([p[0],"علاج",p[2],p[3],0.0,0.0,0.35,f"{p[0]} يعالج {abs(p[4]):.2f}$",abs(p[4]),target_price])
             if len(state["treatment"]) >= config["hospital_cap"]:
                 state["specialty"]=True; state["binance_status"]=f"زحمة {len(state['treatment'])}/30"
             else:
@@ -210,7 +214,7 @@ def set_config():
 @app.route('/api/data')
 def api_data():
     total=state["fixed"]+state["safi"]+state["ghair"]-state["loss_pool"]; elapsed=int(time.time()-state["doctor"]["start"])
-    return jsonify({"fixed":state["fixed"],"safi":state["safi"],"ghair":state["ghair"],"total":round(total,3),"trades_closed":state["trades_closed"],"loss_pool":state["loss_pool"],"positions":state["positions"],"treatment":state["treatment"],"doctor_positions":state["doctor_positions"],"binance_status":state["binance_status"],"data_source":f"V96.7 LUXURY {len(state['treatment'])}/{config['hospital_cap']}","is_running":state["is_running"],"doctor":state["doctor"],"elapsed":elapsed,"heal_rate":99.5,"specialty":state["specialty"],"last_healed":state["last"],"config":config,"healing_mode":state["healing_mode"]})
+    return jsonify({"fixed":state["fixed"],"safi":state["safi"],"ghair":state["ghair"],"total":round(total,3),"trades_closed":state["trades_closed"],"loss_pool":state["loss_pool"],"positions":state["positions"],"treatment":state["treatment"],"doctor_positions":state["doctor_positions"],"binance_status":state["binance_status"],"data_source":f"V97.0 LUXURY {len(state['treatment'])}/{config['hospital_cap']}","is_running":state["is_running"],"doctor":state["doctor"],"elapsed":elapsed,"heal_rate":99.5,"specialty":state["specialty"],"last_healed":state["last"],"config":config,"healing_mode":state["healing_mode"]})
 
 @app.route('/')
 def home():
@@ -246,8 +250,8 @@ body{margin:0;background:radial-gradient(ellipse at top,#0A1931 0%,#060A14 70%);
 .badge{border-radius:10px;padding:3px 6px;font-size:8px;font-weight:800;display:inline-block;direction:ltr!important;font-family:'JetBrains Mono'}
 .foot{padding:6px 10px;font-size:9px;background:#020617;color:#D4AF37;display:flex;justify-content:space-between;font-family:'JetBrains Mono';direction:ltr;flex-wrap:wrap;gap:4px}
 </style></head><body>
-<div class="top" id="top"><span id="elapsed" lang="en" dir="ltr">0s</span><span id="rate" lang="en" dir="ltr">V96.7 - 0/30</span><span id="profit" lang="en" dir="ltr">+0.00$</span><span id="healed" lang="en" dir="ltr">0</span><span id="spec">جاهز</span></div>
-<div class="panel"><h3>👑 V96.7 LUXURY - الاساس BINANCE + المساعد TRADINGVIEW - ارقام 1234 - Responsive</h3>
+<div class="top" id="top"><span id="elapsed" lang="en" dir="ltr">0s</span><span id="rate" lang="en" dir="ltr">V97.0 - 0/30</span><span id="profit" lang="en" dir="ltr">+0.00$</span><span id="healed" lang="en" dir="ltr">0</span><span id="spec">جاهز</span></div>
+<div class="panel"><h3>👑 V97.0 LUXURY FIXED - BINANCE اساس + TRADINGVIEW مساعد - ارقام 1234 - Responsive</h3>
 <div class="grid">
 <div class="box"><label>💰 راس المال $</label><input id="cap" lang="en" dir="ltr" inputmode="decimal" type="text" value="1000" onchange="save()"></div>
 <div class="box"><label>📦 حجم الصفقة $</label><input id="per" lang="en" dir="ltr" inputmode="decimal" type="text" value="100" onchange="save()"></div>
@@ -273,7 +277,7 @@ body{margin:0;background:radial-gradient(ellipse at top,#0A1931 0%,#060A14 70%);
 <div class="tbl"><div class="th" style="grid-template-columns:1.2fr 0.8fr 1.2fr 0.8fr 0.8fr 0.8fr 0.6fr"><div>العملة</div><div>النوع</div><div>الحالة</div><div>الدخول</div><div>الحالي</div><div>ربح $</div><div>%</div></div><div id="plist"></div></div>
 <div class="tbl" style="border-color:#22D3EE"><div class="th" style="grid-template-columns:1fr 1fr 0.6fr 0.6fr 0.6fr 0.8fr 0.6fr;background:#0E2A3A;color:#22D3EE"><div>🔥 طبيب TV</div><div>يعالج</div><div>الفاتورة</div><div>الهدف</div><div>الربح</div><div>الحالة</div><div>المصدر</div></div><div id="dlist"></div></div>
 <div class="tbl" style="border-color:#D4AF37"><div class="th" style="grid-template-columns:1fr 1.2fr 0.6fr 0.6fr 0.6fr 0.6fr;background:#2A1F0F;color:#D4AF37"><div>💊 المستشفى</div><div>يعالج</div><div>الخسارة</div><div>الهدف</div><div>الحالي</div><div>%</div></div><div id="tlist"></div></div>
-<div class="foot"><span lang="en" dir="ltr" id="src">V96.7 DUAL</span><span lang="en" dir="ltr" id="bin">...</span><span lang="en" dir="ltr" id="time">...</span></div>
+<div class="foot"><span lang="en" dir="ltr" id="src">V97.0 DUAL</span><span lang="en" dir="ltr" id="bin">...</span><span lang="en" dir="ltr" id="time">...</span></div>
 <script>
 function toEnglishDigits(str){ if(!str) return str; return str.toString().replace(/[٠-٩]/g, d => "٠١٢٣٤٥٦٧٨٩".indexOf(d)).replace(/[۰-۹]/g, d => "۰۱۲۳۴۵۶۷۸۹".indexOf(d)); }
 function en(n,d=2){ let num=Number(toEnglishDigits(n)); if(isNaN(num)) num=0; return num.toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d,useGrouping:false}); }
@@ -286,13 +290,13 @@ async function save(){
 }
 async function load(){ try{ const r=await fetch('/api/data'); const d=await r.json();
   document.getElementById('cap').value=en(d.config.capital,0); document.getElementById('per').value=en(d.config.per_trade,0); document.getElementById('targ').value=en(d.config.target_dollar,1); document.getElementById('hcap').value=en(d.config.hospital_cap,0);
-  document.getElementById('elapsed').innerText=en(d.elapsed,0)+'s'; document.getElementById('rate').innerText='V96.7 - '+en(d.treatment.length,0)+'/'+en(d.config.hospital_cap,0); document.getElementById('profit').innerText='+'+en(d.doctor.profit,2)+'$'; document.getElementById('healed').innerText=en(d.doctor.healed,0)+' شفى';
+  document.getElementById('elapsed').innerText=en(d.elapsed,0)+'s'; document.getElementById('rate').innerText='V97.0 - '+en(d.treatment.length,0)+'/'+en(d.config.hospital_cap,0); document.getElementById('profit').innerText='+'+en(d.doctor.profit,2)+'$'; document.getElementById('healed').innerText=en(d.doctor.healed,0)+' شفى';
   document.getElementById('f1').innerText=en(d.fixed,2)+'$'; document.getElementById('f2').innerText=en(d.loss_pool,2)+'$'; document.getElementById('f2c').innerText=en(d.treatment.length,0)+' دواء'; document.getElementById('f3').innerText='+'+en(d.safi,3)+'$'; document.getElementById('f5').innerText=en(d.total,3)+'$'; document.getElementById('f6').innerText='+'+en(d.ghair,3)+'$ / '+en(d.config.target_dollar,1)+'$';
   document.getElementById('btnRun').innerText=d.is_running?'⏸️ ايقاف':'▶️ تشغيل'; document.getElementById('btnDoc').innerText=d.config.doctor_enabled?'🔥 مولعة ON':'🔥 OFF';
   document.getElementById('src').innerText=d.data_source; document.getElementById('bin').innerText=d.binance_status; document.getElementById('time').innerText=new Date().toLocaleTimeString('en-GB',{hour12:false});
   let h=''; for(const p of d.positions){ let c=p[5]>=0?'#10B981':'#38BDF8'; h+=`<div class="rw" style="grid-template-columns:1.2fr 0.8fr 1.2fr 0.8fr 0.8fr 0.8fr 0.6fr"><div style="color:#FFF;font-weight:900">${p[0]}</div><div><span class="badge" style="background:#38BDF8;color:#000">BIN</span></div><div style="color:${c};font-size:10px">${p[6]}</div><div>${en(p[2],4)}</div><div>${en(p[3],4)}</div><div style="color:${c}">${en(p[4],3)}$</div><div style="color:${c}">${en(p[5],2)}%</div></div>` } document.getElementById('plist').innerHTML=h||'<div style="padding:10px;text-align:center;color:#D4AF3760">⏳ BINANCE يطحن...</div>';
-  let dl=''; for(const p of d.doctor_positions){ let c=p[5]>=0?'#22D3EE':'#FB7185'; let src=p[10]||'TV'; dl+=`<div class="rw" style="grid-template-columns:1fr 1fr 0.6fr 0.6fr 0.6fr 0.8fr 0.6fr;background:#0E1E2E"><div><span class="badge" style="background:#D4AF37;color:#000">${p[0]}</span></div><div style="color:#22D3EE;font-size:10px">${p[9]}</div><div style="color:#FB923C">${en(p[8],2)}$</div><div style="color:#D4AF37">${en(p[8]+0.07,2)}$</div><div style="color:${c}">${en(p[4],3)}$</div><div style="color:${c};font-size:10px">${p[6]}</div><div><span class="badge" style="background:${src.includes('TRADINGVIEW')?'#22D3EE':'#D4AF37'};color:#000;font-size:7px">${src.substring(0,3)}</span></div></div>` } document.getElementById('dlist').innerHTML=dl||'<div style="padding:10px;text-align:center;background:#0E1E2E;color:#D4AF37">👑 0/30 فخامة ✅</div>';
-  let t=''; for(const p of d.treatment){ t+=`<div class="rw" style="grid-template-columns:1fr 1.2fr 0.6fr 0.6fr 0.6fr 0.6fr;background:#1A1500"><div><span class="badge" style="background:#FB923C;color:#000">${p[0]}</span></div><div style="color:#D4AF37;font-size:10px">${p[7]}</div><div style="color:#FB7185">-${en(p[8],2)}$</div><div style="color:#D4AF37">${en(p[9],2)}$</div><div>${en(p[3],4)}</div><div>5%</div></div>` } document.getElementById('tlist').innerHTML=t||'<div style="padding:10px;text-align:center;background:#1A1500;color:#10B981">👑 0/30 فاضي ✅</div>';
+  let dl=''; for(const p of d.doctor_positions){ let c=p[5]>=0?'#22D3EE':'#FB7185'; let src=p[10]||'TV'; let invoice=en(p[8],2); let target=en(p[8]+0.07,2); let profit=en(p[4],3); let pctVal=p[11]!=null?p[11]:p[6]; dl+=`<div class="rw" style="grid-template-columns:1fr 1fr 0.6fr 0.6fr 0.6fr 0.8fr 0.6fr;background:#0E1E2E"><div><span class="badge" style="background:#D4AF37;color:#000">${p[0]}</span></div><div style="color:#FACC15;font-weight:700">${p[9]}</div><div style="color:#FB923C">${invoice}$</div><div style="color:#D4AF37;font-weight:800">${target}$</div><div style="color:${c};font-weight:800">${profit}$</div><div style="color:${c};font-size:10px">${en(pctVal,1)}% MOL3A</div><div><span class="badge" style="background:${src.includes('TRADINGVIEW')?'#22D3EE':'#D4AF37'};color:#000;font-size:7px">${src.substring(0,3)}</span></div></div>` } document.getElementById('dlist').innerHTML=dl||'<div style="padding:10px;text-align:center;background:#0E1E2E;color:#D4AF37">👑 0/30 فخامة ✅</div>';
+  let t=''; for(const p of d.treatment){ let loss='-'+en(p[8],2)+'$'; let tgt=en(p[9],4); t+=`<div class="rw" style="grid-template-columns:1fr 1.2fr 0.6fr 0.6fr 0.6fr 0.6fr;background:#1A1500"><div><span class="badge" style="background:#FB923C;color:#000">${p[0]}</span></div><div style="color:#D4AF37;font-size:10px">${p[7]}</div><div style="color:#FB7185">${loss}</div><div style="color:#D4AF37">${tgt}</div><div>${en(p[3],4)}</div><div>5%</div></div>` } document.getElementById('tlist').innerHTML=t||'<div style="padding:10px;text-align:center;background:#1A1500;color:#10B981">👑 0/30 فاضي ✅</div>';
 }catch(e){} } setInterval(load,1000); load();
 </script></body></html>
     """
