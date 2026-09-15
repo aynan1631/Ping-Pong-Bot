@@ -1,6 +1,6 @@
 """
-V99.0 CLEAN - واجهة نظيفة 4 أزرار فقط + حظر ASTR/ASTAR/SAGA/FF
-مبني على V98.5 حقك
+V99.0 CLEAN - تنظيف ايقونات + نفس منطق V98.5 BAN
+صافي محفوظ 198$ / ثابت 1198$ + حظر ASTR/ASTAR/SAGA/FF
 """
 from flask import Flask, jsonify, request
 import threading, time, os, requests
@@ -8,7 +8,7 @@ app = Flask(__name__)
 
 config={"capital":1000.0,"per_trade":100.0,"target_dollar":0.5,"sl_pct":0.35,"hospital_cap":30,"max_pos":8,"min_vol":2000000,"doctor_enabled":True,"doctor_auto":True,"doctor_threshold":2,"doctor_extra":0.04,"doctor_sl":1.0,"max_doctors":3}
 BANNED = {"ASTR","ASTAR","SAGA","FF"}
-state={"fixed":1201.73,"safi":201.725,"ghair":0.0,"trades_closed":0,"loss_pool":0.0,"positions":[],"treatment":[],"doctor_positions":[],"binance_status":"V99.0 CLEAN","data_source":"V99.0 CLEAN","is_running":True,"doctor":{"healed":0,"profit":0.0,"start":time.time(),"rate":99.5,"active_patient":None,"active_doctor":None},"specialty":False,"last":"V99.0 نظيف","healing_mode":False}
+state={"fixed":1198.0,"safi":198.0,"ghair":0.0,"trades_closed":0,"loss_pool":0.0,"positions":[],"treatment":[],"doctor_positions":[],"binance_status":"V99.0 CLEAN","data_source":"V99.0 CLEAN","is_running":True,"doctor":{"healed":0,"profit":0.0,"start":time.time(),"rate":99.5,"active_patient":None,"active_doctor":None},"specialty":False,"last":"V99.0 CLEAN","healing_mode":False}
 
 def ema(data, period):
     if len(data)<period: return None
@@ -94,6 +94,7 @@ def get_tradingview_doctors(exclude=[], limit=3):
         if c[0] not in seen and len(res)<limit:
             res.append((c[0],c[1],c[2],c[3],c[4],c[5],c[7])); seen.add(c[0])
     return res
+
 def engine():
     while True:
         try:
@@ -129,8 +130,7 @@ def engine():
                     sym,pct,price,vol,power,bull,source = strongest
                     if sym == oldest[0] or sym in BANNED or oldest[0] in BANNED: continue
                     if sym not in exist and price>0.0000005:
-                        status_text = f"{pct:.1f}% MOL3A"
-                        state["doctor_positions"].append([sym, source, price*0.9995, price, 0.0, 0.0, status_text, time.time(), invoice, oldest[0], source, pct])
+                        state["doctor_positions"].append([sym, source, price*0.9995, price, 0.0, 0.0, f"{pct:.1f}% MOL3A", time.time(), invoice, oldest[0], source, pct])
                         state["last"]=f"{source} {sym} {pct:.1f}% -> {oldest[0]}"; exist.add(sym); used_patients.add(oldest[0])
             for d in state["doctor_positions"][:]:
                 try:
@@ -231,4 +231,88 @@ def api_data():
 
 @app.route('/')
 def home():
-    return """HTML موجود في الملف الكامل - انسخ من الملف"""
+    return """
+<html dir="rtl" lang="ar"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@700;800;900&family=JetBrains+Mono:wght@700;800&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:radial-gradient(ellipse at top,#0A1931 0%,#060A14 70%);color:#E8DCC6;font-family:'Cairo';overflow-x:hidden}
+.top{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;margin:6px;background:linear-gradient(135deg,#0F1E3A,#1A2F5A);border:1px solid #D4AF3755;border-radius:10px;font-size:13px;font-weight:900;color:#D4AF37;flex-wrap:wrap;gap:6px}
+.panel{background:linear-gradient(180deg,#0F1C33,#0A1428);border:1px solid #D4AF3730;border-radius:14px;margin:6px;padding:12px}
+.panel h3{margin:0 0 10px;text-align:center;color:#FFD700;font-size:18px;font-weight:900}
+.grid{display:grid;gap:6px}
+.box{background:linear-gradient(180deg,#0A1428,#060A14);border:1px solid #D4AF3725;border-radius:10px;padding:6px 4px;text-align:center;min-width:0}
+.box label{font-size:12px;color:#E2E8F0;display:block;margin-bottom:5px;font-weight:800}
+.box input{width:100%;background:#020617;border:1.2px solid #D4AF37;border-radius:8px;color:#FFF;font-family:'JetBrains Mono'!important;font-weight:800;font-size:14px;text-align:center;padding:6px 2px;direction:ltr!important}
+@media(max-width:768px){.grid{grid-template-columns:1fr 1fr}}
+@media(min-width:769px){.grid{grid-template-columns:repeat(4,1fr)}}
+.btns{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;padding:10px}
+.btn{border:none;border-radius:22px;padding:10px 16px;font-family:'Cairo';font-size:12px;font-weight:900;cursor:pointer;white-space:nowrap}
+.cards{display:grid;gap:6px;padding:6px}
+.card{background:linear-gradient(180deg,#122040,#0A1428);border:1px solid #D4AF3720;border-radius:12px;padding:10px 4px;text-align:center;min-width:0}
+.card.gold{border-color:#D4AF37}.card.safi{border-color:#10B981}
+.lab{font-size:12px;color:#CBD5E1;margin-bottom:5px;font-weight:800}
+.val{font-family:'JetBrains Mono'!important;font-weight:900;direction:ltr!important;white-space:nowrap;font-size:14px}
+@media(max-width:768px){.cards{grid-template-columns:1fr 1fr}.val{font-size:14px!important}.card:nth-child(3){grid-column:1 / -1}}
+@media(min-width:769px){.cards{grid-template-columns:repeat(5,1fr)}.val{font-size:16px!important}.val.g{font-size:22px!important}.val.y{font-size:18px!important}}
+.tbl{margin:6px;border-radius:12px;overflow:hidden;border:1px solid #D4AF3720;overflow-x:auto}
+.th{display:grid;padding:12px 8px;font-size:14px;font-weight:900;color:#FFD700;background:linear-gradient(90deg,#1A2A4A 0%,#223A6A 100%);min-width:560px}
+.rw{display:grid;padding:9px 8px;font-size:13px;background:#0E1A30;border-top:1px solid #1A2A4A50;min-width:560px;align-items:center}
+.rw div{font-family:'JetBrains Mono'!important;font-weight:800;direction:ltr!important;font-size:13px;white-space:nowrap}
+.badge{border-radius:10px;padding:4px 8px;font-size:10px;font-weight:900;display:inline-block;direction:ltr!important;font-family:'JetBrains Mono'}
+.profit-pos{color:#00FF88!important;text-shadow:0 0 10px rgba(0,255,136,0.9);font-weight:900!important}
+.profit-neg{color:#FF3344!important;text-shadow:0 0 10px rgba(255,51,68,0.9);font-weight:900!important}
+.foot{padding:8px 12px;font-size:11px;background:#020617;color:#D4AF37;display:flex;justify-content:space-between;font-family:'JetBrains Mono';direction:ltr;flex-wrap:wrap;gap:4px}
+</style></head><body>
+<div class="top"><span id="elapsed">0s</span><span id="rate">V99.0 - 0/30</span><span id="profit">+0.00$</span><span id="healed">0</span><span id="spec">جاهز</span></div>
+<div class="panel"><h3>👑 V99.0 CLEAN - واجهة نظيفة 4 ازرار فقط ✨</h3>
+<div class="grid">
+<div class="box"><label>💰 راس المال $</label><input id="cap" type="text" value="1000" onchange="save()"></div>
+<div class="box"><label>📦 حجم الصفقة $</label><input id="per" type="text" value="100" onchange="save()"></div>
+<div class="box"><label>🎯 هدف القفل $</label><input id="targ" type="text" value="0.5" onchange="save()"><div id="targVal" style="font-size:11px;color:#FFD700;font-family:'JetBrains Mono';margin-top:4px;font-weight:900">0.5$</div></div>
+<div class="box"><label>🏥 سعة المستشفى</label><input id="hcap" type="text" value="30" onchange="save()"></div>
+</div></div>
+<div class="btns">
+<button class="btn" style="background:#10B981;color:#FFF" id="btnRun" onclick="ctrl('toggle')">⏸️ ايقاف</button>
+<button class="btn" style="background:#38BDF8;color:#000" onclick="ctrl('lock')">🔒 قفل ربح</button>
+<button class="btn" style="background:#22D3EE;color:#000" id="btnDoc" onclick="ctrl('doctor')">🔥 مولعة ON</button>
+<button class="btn" style="background:#000;color:#FF3344;border:2px solid #FF3344" onclick="ctrl('ban_clean')">🚫 تنظيف حظر</button>
+</div>
+<div class="cards">
+<div class="card"><div class="lab">💰 ثابت</div><div class="val" id="f1">1000.00$</div></div>
+<div class="card"><div class="lab">📦 الصيدلية</div><div class="val" id="f2">0.00$</div><div class="lab" id="f2c" style="font-size:10px">0 دواء</div></div>
+<div class="card safi"><div class="lab">💹 صافي محقق 🔒</div><div class="val g" id="f3">+0.000$</div></div>
+<div class="card gold"><div class="lab">💎 الاجمالي</div><div class="val y" id="f5">1000.000$</div></div>
+<div class="card"><div class="lab">📈 غير محققة</div><div class="val" id="f6">+0.000$</div></div>
+</div>
+<div class="tbl"><div class="th" style="grid-template-columns:1.2fr 0.8fr 1.2fr 0.8fr 0.8fr 0.8fr 0.6fr"><div>العملة</div><div>النوع</div><div>الحالة</div><div>الدخول</div><div>الحالي</div><div>ربح $</div><div>%</div></div><div id="plist"></div></div>
+<div class="tbl" style="border-color:#22D3EE"><div class="th" style="grid-template-columns:1fr 1fr 0.6fr 0.6fr 0.6fr 0.8fr 0.6fr;background:#0E2A3A;color:#22D3EE"><div>🔥 طبيب TV</div><div>يعالج</div><div>الفاتورة</div><div>الهدف</div><div>الربح</div><div>الحالة</div><div>المصدر</div></div><div id="dlist"></div></div>
+<div class="tbl" style="border-color:#D4AF37"><div class="th" style="grid-template-columns:1fr 1.2fr 0.6fr 0.6fr 0.6fr 0.6fr;background:#2A1F0F;color:#D4AF37"><div>💊 المستشفى</div><div>يعالج</div><div>الخسارة</div><div>الهدف</div><div>الحالي</div><div>%</div></div><div id="tlist"></div></div>
+<div class="foot"><span id="src">V99.0 CLEAN</span><span id="bin">...</span><span id="time">...</span></div>
+<script>
+function en(n,d=2){ let num=Number(n); if(isNaN(num)) num=0; return num.toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d,useGrouping:false}); }
+function colorClass(v){ return Number(v) >= 0? 'profit-pos' : 'profit-neg'; }
+async function ctrl(c){ await fetch('/api/control/'+c); load(); }
+async function save(){
+  let cap=document.getElementById('cap').value, per=document.getElementById('per').value, targ=document.getElementById('targ').value, hcap=document.getElementById('hcap').value;
+  const res=await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({capital:parseFloat(cap)||1000,per_trade:parseFloat(per)||100,target:parseFloat(targ)||0.5,target_dollar:parseFloat(targ)||0.5,hcap:parseInt(hcap)||30})});
+  const j=await res.json(); document.getElementById('targVal').innerText=en(j.config.target_dollar,1)+'$';
+}
+async function load(){ try{ const r=await fetch('/api/data'); const d=await r.json();
+  document.getElementById('cap').value=en(d.config.capital,0); document.getElementById('per').value=en(d.config.per_trade,0); document.getElementById('targ').value=en(d.config.target_dollar,1); document.getElementById('hcap').value=en(d.config.hospital_cap,0);
+  document.getElementById('elapsed').innerText=en(d.elapsed,0)+'s'; document.getElementById('rate').innerText='V99.0 - '+en(d.treatment.length,0)+'/'+en(d.config.hospital_cap,0); document.getElementById('profit').innerText='+'+en(d.doctor.profit,2)+'$'; document.getElementById('healed').innerText=en(d.doctor.healed,0)+' شفى';
+  document.getElementById('f1').innerText=en(d.fixed,2)+'$'; document.getElementById('f2').innerText=en(d.loss_pool,2)+'$'; document.getElementById('f2c').innerText=en(d.treatment.length,0)+' دواء';
+  let safiCls = Number(d.safi)>=0?'profit-pos':'profit-neg'; document.getElementById('f3').innerHTML='<span class="'+safiCls+'">+'+en(d.safi,3)+'$</span>';
+  document.getElementById('f5').innerText=en(d.total,3)+'$';
+  let ghairCls = Number(d.ghair)>=0?'profit-pos':'profit-neg'; document.getElementById('f6').innerHTML='<span class="'+ghairCls+'">'+en(d.ghair,3)+'$ / '+en(d.config.target_dollar,1)+'$</span>';
+  document.getElementById('btnRun').innerText=d.is_running?'⏸️ ايقاف':'▶️ تشغيل'; document.getElementById('btnDoc').innerText=d.config.doctor_enabled?'🔥 مولعة ON':'🔥 OFF';
+  document.getElementById('src').innerText=d.data_source; document.getElementById('bin').innerText=d.binance_status; document.getElementById('time').innerText=new Date().toLocaleTimeString('en-GB',{hour12:false});
+  let h=''; for(const p of d.positions){ let cls=colorClass(p[5]); let cls2=colorClass(p[4]); h+=`<div class="rw" style="grid-template-columns:1.2fr 0.8fr 1.2fr 0.8fr 0.8fr 0.8fr 0.6fr"><div style="color:#FFF;font-weight:900">${p[0]}</div><div><span class="badge" style="background:#38BDF8;color:#000">BIN</span></div><div class="${cls}" style="font-size:12px">${p[6]}</div><div style="color:#FFD700">${en(p[2],4)}</div><div style="color:#FFF">${en(p[3],4)}</div><div class="${cls2}">${en(p[4],3)}$</div><div class="${cls}">${en(p[5],2)}%</div></div>` } document.getElementById('plist').innerHTML=h||'<div style="padding:10px;text-align:center;color:#D4AF3760">⏳ BINANCE يطحن...</div>';
+  let dl=''; for(const p of d.doctor_positions){ let cls=colorClass(p[5]); let invoice=en(p[8],2); let target=en(p[8]*0.60,2); let profitCls=colorClass(p[4]); dl+=`<div class="rw" style="grid-template-columns:1fr 1fr 0.6fr 0.6fr 0.6fr 0.8fr 0.6fr;background:#0E1E2E"><div><span class="badge" style="background:#D4AF37;color:#000">${p[0]}</span></div><div style="color:#FACC15;font-weight:800">${p[9]}</div><div style="color:#FB923C">${invoice}$</div><div style="color:#00FF88">${target}$</div><div class="${profitCls}">${en(p[4],3)}$</div><div class="${cls}" style="font-size:11px">${p[6]}</div><div><span class="badge" style="background:${(p[10]||'TV').includes('TRADINGVIEW')?'#22D3EE':'#D4AF37'};color:#000;font-size:8px">${(p[10]||'TV').substring(0,3)}</span></div></div>` } document.getElementById('dlist').innerHTML=dl||'<div style="padding:10px;text-align:center;background:#0E1E2E;color:#D4AF37">👑 0/30 فخامة ✅</div>';
+  let t=''; for(const p of d.treatment){ let loss='-'+en(p[8],2)+'$'; let tgt=en(p[9],4); t+=`<div class="rw" style="grid-template-columns:1fr 1.2fr 0.6fr 0.6fr 0.6fr 0.6fr;background:#1A1500"><div><span class="badge" style="background:#FB923C;color:#000">${p[0]}</span></div><div style="color:#D4AF37;font-size:11px">${p[7]}</div><div class="profit-neg">${loss}</div><div style="color:#FFD700">${tgt}</div><div>${en(p[3],4)}</div><div class="profit-neg">5%</div></div>` } document.getElementById('tlist').innerHTML=t||'<div style="padding:10px;text-align:center;background:#1A1500;color:#10B981">👑 0/30 فاضي ✅</div>';
+}catch(e){} } setInterval(load,1000); load();
+</script></body></html>
+    """
+
+if __name__=="__main__":
+    app.run(host="0.0.0.0",port=int(os.environ.get("PORT",8080)))
