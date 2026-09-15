@@ -1,12 +1,12 @@
 """
-V97.0 FINAL CLEAN - نفس V96.7 + اصلاح 0.050$ + 1.00$ + Responsive + ارقام 1234
+V97.1 LUXURY CLEAR - عناوين كبيرة + ارقام موجب اخضر لامع سالب احمر لامع
 """
 from flask import Flask, jsonify, request
 import threading, time, os, requests
 app = Flask(__name__)
 
 config={"capital":1000.0,"per_trade":100.0,"target_dollar":0.5,"sl_pct":0.5,"hospital_cap":30,"max_pos":8,"min_vol":2000000,"doctor_enabled":True,"doctor_auto":True,"doctor_threshold":2,"doctor_extra":0.07,"doctor_sl":0.3,"max_doctors":3}
-state={"fixed":1000.0,"safi":0.0,"ghair":0.0,"trades_closed":0,"loss_pool":0.0,"positions":[],"treatment":[],"doctor_positions":[],"binance_status":"V97.0 LUXURY","data_source":"V97.0 LUXURY DUAL","is_running":True,"doctor":{"healed":0,"profit":0.0,"start":time.time(),"rate":99.5,"active_patient":None,"active_doctor":None},"specialty":False,"last":"V97.0 Ready","healing_mode":False}
+state={"fixed":1000.0,"safi":0.0,"ghair":0.0,"trades_closed":0,"loss_pool":0.0,"positions":[],"treatment":[],"doctor_positions":[],"binance_status":"V97.1 LUXURY","data_source":"V97.1 LUXURY DUAL","is_running":True,"doctor":{"healed":0,"profit":0.0,"start":time.time(),"rate":99.5,"active_patient":None,"active_doctor":None},"specialty":False,"last":"V97.1 Ready","healing_mode":False}
 
 def ema(data, period):
     if len(data)<period: return None
@@ -123,7 +123,6 @@ def engine():
                     oldest=target_patient; invoice=oldest[8]
                     sym,pct,price,vol,power,bull,source = strongest
                     if sym not in exist and price>0.0000005:
-                        # FIX: الحالة نظيفة بدون ->0.050$
                         status_text = f"{pct:.1f}% MOL3A"
                         state["doctor_positions"].append([sym, source, price*0.9995, price, 0.0, 0.0, status_text, time.time(), invoice, oldest[0], source, pct])
                         state["last"]=f"{source} {sym} {pct:.1f}% -> {oldest[0]}"; exist.add(sym); used_patients.add(oldest[0])
@@ -159,7 +158,6 @@ def engine():
             for p in to_hosp:
                 if p in state["positions"]:
                     state["positions"].remove(p)
-                    # FIX: الهدف كان 1.0 ثابت - الآن سعر الشفاء الحقيقي
                     target_price = p[2] * 0.995
                     state["treatment"].append([p[0],"علاج",p[2],p[3],0.0,0.0,0.35,f"{p[0]} يعالج {abs(p[4]):.2f}$",abs(p[4]),target_price])
             if len(state["treatment"]) >= config["hospital_cap"]:
@@ -214,49 +212,51 @@ def set_config():
 @app.route('/api/data')
 def api_data():
     total=state["fixed"]+state["safi"]+state["ghair"]-state["loss_pool"]; elapsed=int(time.time()-state["doctor"]["start"])
-    return jsonify({"fixed":state["fixed"],"safi":state["safi"],"ghair":state["ghair"],"total":round(total,3),"trades_closed":state["trades_closed"],"loss_pool":state["loss_pool"],"positions":state["positions"],"treatment":state["treatment"],"doctor_positions":state["doctor_positions"],"binance_status":state["binance_status"],"data_source":f"V97.0 LUXURY {len(state['treatment'])}/{config['hospital_cap']}","is_running":state["is_running"],"doctor":state["doctor"],"elapsed":elapsed,"heal_rate":99.5,"specialty":state["specialty"],"last_healed":state["last"],"config":config,"healing_mode":state["healing_mode"]})
+    return jsonify({"fixed":state["fixed"],"safi":state["safi"],"ghair":state["ghair"],"total":round(total,3),"trades_closed":state["trades_closed"],"loss_pool":state["loss_pool"],"positions":state["positions"],"treatment":state["treatment"],"doctor_positions":state["doctor_positions"],"binance_status":state["binance_status"],"data_source":f"V97.1 LUXURY {len(state['treatment'])}/{config['hospital_cap']}","is_running":state["is_running"],"doctor":state["doctor"],"elapsed":elapsed,"heal_rate":99.5,"specialty":state["specialty"],"last_healed":state["last"],"config":config,"healing_mode":state["healing_mode"]})
 
 @app.route('/')
 def home():
     return """
 <html dir="rtl" lang="ar"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
-<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@600;800;900&family=JetBrains+Mono:wght@700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@700;800;900&family=JetBrains+Mono:wght@700;800&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box}
 body{margin:0;background:radial-gradient(ellipse at top,#0A1931 0%,#060A14 70%);color:#E8DCC6;font-family:'Cairo';overflow-x:hidden}
-.top{display:flex;justify-content:space-between;align-items:center;padding:8px 10px;margin:6px;background:linear-gradient(135deg,#0F1E3A,#1A2F5A);border:1px solid #D4AF3755;border-radius:10px;font-size:11px;font-weight:800;color:#D4AF37;flex-wrap:wrap;gap:6px}
-.panel{background:linear-gradient(180deg,#0F1C33,#0A1428);border:1px solid #D4AF3730;border-radius:14px;margin:6px;padding:10px}
-.panel h3{margin:0 0 8px;text-align:center;color:#D4AF37;font-size:12px;font-weight:800;line-height:1.4}
+.top{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;margin:6px;background:linear-gradient(135deg,#0F1E3A,#1A2F5A);border:1px solid #D4AF3755;border-radius:10px;font-size:13px;font-weight:900;color:#D4AF37;flex-wrap:wrap;gap:6px}
+.panel{background:linear-gradient(180deg,#0F1C33,#0A1428);border:1px solid #D4AF3730;border-radius:14px;margin:6px;padding:12px}
+.panel h3{margin:0 0 10px;text-align:center;color:#FFD700;font-size:18px;font-weight:900;letter-spacing:0.5px;text-shadow:0 0 12px rgba(255,215,0,0.6)}
 .grid{display:grid;gap:6px}
 .box{background:linear-gradient(180deg,#0A1428,#060A14);border:1px solid #D4AF3725;border-radius:10px;padding:6px 4px;text-align:center;min-width:0}
-.box label{font-size:9px;color:#CBD5E1;display:block;margin-bottom:4px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.box input{width:100%;background:#020617;border:1.2px solid #D4AF37;border-radius:8px;color:#FFF;font-family:'JetBrains Mono'!important;font-weight:800;font-size:13px;text-align:center;padding:6px 2px;direction:ltr!important;unicode-bidi:plaintext!important}
-@media(max-width:768px){.grid{grid-template-columns:1fr 1fr}.box label{font-size:8px}.box input{font-size:12px;padding:5px 2px}}
+.box label{font-size:12px;color:#E2E8F0;display:block;margin-bottom:5px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.box input{width:100%;background:#020617;border:1.2px solid #D4AF37;border-radius:8px;color:#FFF;font-family:'JetBrains Mono'!important;font-weight:800;font-size:14px;text-align:center;padding:6px 2px;direction:ltr!important}
+@media(max-width:768px){.grid{grid-template-columns:1fr 1fr}.box label{font-size:11px}.box input{font-size:13px}}
 @media(min-width:769px){.grid{grid-template-columns:repeat(4,1fr)}}
 .btns{display:flex;gap:5px;justify-content:center;flex-wrap:wrap;padding:8px}
-.btn{border:none;border-radius:20px;padding:7px 12px;font-family:'Cairo';font-size:10px;font-weight:800;cursor:pointer;white-space:nowrap}
-@media(max-width:768px){.btn{padding:6px 10px;font-size:9px;flex:1 1 calc(33% - 5px);min-width:80px}}
+.btn{border:none;border-radius:20px;padding:8px 14px;font-family:'Cairo';font-size:12px;font-weight:900;cursor:pointer;white-space:nowrap}
+@media(max-width:768px){.btn{flex:1 1 calc(33% - 5px);min-width:85px;font-size:11px}}
 .cards{display:grid;gap:6px;padding:6px}
-.card{background:linear-gradient(180deg,#122040,#0A1428);border:1px solid #D4AF3720;border-radius:12px;padding:8px 4px;text-align:center;min-width:0;overflow:hidden}
+.card{background:linear-gradient(180deg,#122040,#0A1428);border:1px solid #D4AF3720;border-radius:12px;padding:10px 4px;text-align:center;min-width:0}
 .card.gold{border-color:#D4AF37}.card.safi{border-color:#10B981}
-.lab{font-size:8px;color:#94A3B8;margin-bottom:4px;font-weight:700;white-space:nowrap}
-.val{font-family:'JetBrains Mono'!important;font-weight:800;direction:ltr!important;unicode-bidi:plaintext!important;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-@media(max-width:768px){.cards{grid-template-columns:1fr 1fr}.card{padding:6px 2px}.lab{font-size:7px}.val{font-size:12px!important}.card:nth-child(3){grid-column:1 / -1}}
-@media(min-width:769px){.cards{grid-template-columns:repeat(5,1fr)}.val{font-size:15px!important}.val.g{font-size:20px!important}.val.y{font-size:16px!important}}
+.lab{font-size:12px;color:#CBD5E1;margin-bottom:5px;font-weight:800;letter-spacing:0.3px}
+.val{font-family:'JetBrains Mono'!important;font-weight:900;direction:ltr!important;white-space:nowrap;font-size:14px}
+@media(max-width:768px){.cards{grid-template-columns:1fr 1fr}.val{font-size:14px!important}.card:nth-child(3){grid-column:1 / -1}.lab{font-size:11px}}
+@media(min-width:769px){.cards{grid-template-columns:repeat(5,1fr)}.val{font-size:16px!important}.val.g{font-size:22px!important}.val.y{font-size:18px!important}.lab{font-size:12px}}
 .tbl{margin:6px;border-radius:12px;overflow:hidden;border:1px solid #D4AF3720;overflow-x:auto}
-.th{display:grid;padding:8px 6px;font-size:9px;font-weight:800;color:#D4AF37;background:#1A2A4A;min-width:520px}
-.rw{display:grid;padding:7px 6px;font-size:11px;background:#0E1A30;border-top:1px solid #1A2A4A30;min-width:520px}
-.rw div{font-family:'JetBrains Mono'!important;font-weight:700;direction:ltr!important;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.badge{border-radius:10px;padding:3px 6px;font-size:8px;font-weight:800;display:inline-block;direction:ltr!important;font-family:'JetBrains Mono'}
-.foot{padding:6px 10px;font-size:9px;background:#020617;color:#D4AF37;display:flex;justify-content:space-between;font-family:'JetBrains Mono';direction:ltr;flex-wrap:wrap;gap:4px}
+.th{display:grid;padding:12px 8px;font-size:14px;font-weight:900;color:#FFD700;background:linear-gradient(90deg,#1A2A4A 0%,#223A6A 100%);min-width:560px;letter-spacing:0.5px;text-shadow:0 0 8px rgba(255,215,0,0.5)}
+.rw{display:grid;padding:9px 8px;font-size:13px;background:#0E1A30;border-top:1px solid #1A2A4A50;min-width:560px;align-items:center}
+.rw div{font-family:'JetBrains Mono'!important;font-weight:800;direction:ltr!important;font-size:13px;white-space:nowrap}
+.badge{border-radius:10px;padding:4px 8px;font-size:10px;font-weight:900;display:inline-block;direction:ltr!important;font-family:'JetBrains Mono'}
+.profit-pos{color:#00FF88!important;text-shadow:0 0 10px rgba(0,255,136,0.9),0 0 20px rgba(0,255,136,0.5);font-weight:900!important}
+.profit-neg{color:#FF3344!important;text-shadow:0 0 10px rgba(255,51,68,0.9),0 0 20px rgba(255,51,68,0.5);font-weight:900!important}
+.foot{padding:8px 12px;font-size:11px;background:#020617;color:#D4AF37;display:flex;justify-content:space-between;font-family:'JetBrains Mono';direction:ltr;flex-wrap:wrap;gap:4px}
 </style></head><body>
-<div class="top" id="top"><span id="elapsed" lang="en" dir="ltr">0s</span><span id="rate" lang="en" dir="ltr">V97.0 - 0/30</span><span id="profit" lang="en" dir="ltr">+0.00$</span><span id="healed" lang="en" dir="ltr">0</span><span id="spec">جاهز</span></div>
-<div class="panel"><h3>👑 V97.0 LUXURY FIXED - BINANCE اساس + TRADINGVIEW مساعد - ارقام 1234 - Responsive</h3>
+<div class="top" id="top"><span id="elapsed" lang="en" dir="ltr">0s</span><span id="rate" lang="en" dir="ltr">V97.1 - 0/30</span><span id="profit" lang="en" dir="ltr">+0.00$</span><span id="healed" lang="en" dir="ltr">0</span><span id="spec">جاهز</span></div>
+<div class="panel"><h3>👑 V97.1 LUXURY CLEAR - BINANCE اساس + TRADINGVIEW مساعد - عناوين واضحة + ارقام نيون</h3>
 <div class="grid">
-<div class="box"><label>💰 راس المال $</label><input id="cap" lang="en" dir="ltr" inputmode="decimal" type="text" value="1000" onchange="save()"></div>
-<div class="box"><label>📦 حجم الصفقة $</label><input id="per" lang="en" dir="ltr" inputmode="decimal" type="text" value="100" onchange="save()"></div>
-<div class="box"><label>🎯 هدف القفل $</label><input id="targ" lang="en" dir="ltr" inputmode="decimal" type="text" value="0.5" onchange="save()"><div id="targVal" lang="en" dir="ltr" style="font-size:10px;color:#D4AF37;font-family:'JetBrains Mono';margin-top:3px;font-weight:800">0.5$</div></div>
-<div class="box"><label>🏥 سعة المستشفى</label><input id="hcap" lang="en" dir="ltr" inputmode="numeric" type="text" value="30" onchange="save()"></div>
+<div class="box"><label>💰 راس المال $</label><input id="cap" lang="en" dir="ltr" type="text" value="1000" onchange="save()"></div>
+<div class="box"><label>📦 حجم الصفقة $</label><input id="per" lang="en" dir="ltr" type="text" value="100" onchange="save()"></div>
+<div class="box"><label>🎯 هدف القفل $</label><input id="targ" lang="en" dir="ltr" type="text" value="0.5" onchange="save()"><div id="targVal" lang="en" dir="ltr" style="font-size:11px;color:#FFD700;font-family:'JetBrains Mono';margin-top:4px;font-weight:900">0.5$</div></div>
+<div class="box"><label>🏥 سعة المستشفى</label><input id="hcap" lang="en" dir="ltr" type="text" value="30" onchange="save()"></div>
 </div></div>
 <div class="btns">
 <button class="btn" style="background:#FB923C;color:#000" onclick="ctrl('try')">🧪 دخول</button>
@@ -269,7 +269,7 @@ body{margin:0;background:radial-gradient(ellipse at top,#0A1931 0%,#060A14 70%);
 </div>
 <div class="cards">
 <div class="card"><div class="lab">💰 ثابت</div><div class="val w" lang="en" dir="ltr" id="f1">1000.00$</div></div>
-<div class="card"><div class="lab">📦 الصيدلية</div><div class="val b" lang="en" dir="ltr" id="f2">0.00$</div><div class="lab" lang="en" dir="ltr" id="f2c" style="font-size:8px">0 دواء</div></div>
+<div class="card"><div class="lab">📦 الصيدلية</div><div class="val b" lang="en" dir="ltr" id="f2">0.00$</div><div class="lab" lang="en" dir="ltr" id="f2c" style="font-size:10px">0 دواء</div></div>
 <div class="card safi"><div class="lab">💹 صافي محقق</div><div class="val g" lang="en" dir="ltr" id="f3">+0.000$</div></div>
 <div class="card gold"><div class="lab">💎 الاجمالي</div><div class="val y" lang="en" dir="ltr" id="f5">1000.000$</div></div>
 <div class="card"><div class="lab">📈 غير محققة</div><div class="val c" lang="en" dir="ltr" id="f6">+0.000$</div></div>
@@ -277,10 +277,11 @@ body{margin:0;background:radial-gradient(ellipse at top,#0A1931 0%,#060A14 70%);
 <div class="tbl"><div class="th" style="grid-template-columns:1.2fr 0.8fr 1.2fr 0.8fr 0.8fr 0.8fr 0.6fr"><div>العملة</div><div>النوع</div><div>الحالة</div><div>الدخول</div><div>الحالي</div><div>ربح $</div><div>%</div></div><div id="plist"></div></div>
 <div class="tbl" style="border-color:#22D3EE"><div class="th" style="grid-template-columns:1fr 1fr 0.6fr 0.6fr 0.6fr 0.8fr 0.6fr;background:#0E2A3A;color:#22D3EE"><div>🔥 طبيب TV</div><div>يعالج</div><div>الفاتورة</div><div>الهدف</div><div>الربح</div><div>الحالة</div><div>المصدر</div></div><div id="dlist"></div></div>
 <div class="tbl" style="border-color:#D4AF37"><div class="th" style="grid-template-columns:1fr 1.2fr 0.6fr 0.6fr 0.6fr 0.6fr;background:#2A1F0F;color:#D4AF37"><div>💊 المستشفى</div><div>يعالج</div><div>الخسارة</div><div>الهدف</div><div>الحالي</div><div>%</div></div><div id="tlist"></div></div>
-<div class="foot"><span lang="en" dir="ltr" id="src">V97.0 DUAL</span><span lang="en" dir="ltr" id="bin">...</span><span lang="en" dir="ltr" id="time">...</span></div>
+<div class="foot"><span lang="en" dir="ltr" id="src">V97.1 DUAL</span><span lang="en" dir="ltr" id="bin">...</span><span lang="en" dir="ltr" id="time">...</span></div>
 <script>
 function toEnglishDigits(str){ if(!str) return str; return str.toString().replace(/[٠-٩]/g, d => "٠١٢٣٤٥٦٧٨٩".indexOf(d)).replace(/[۰-۹]/g, d => "۰۱۲۳۴۵۶۷۸۹".indexOf(d)); }
 function en(n,d=2){ let num=Number(toEnglishDigits(n)); if(isNaN(num)) num=0; return num.toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d,useGrouping:false}); }
+function colorClass(v){ return Number(v) >= 0? 'profit-pos' : 'profit-neg'; }
 async function ctrl(c){ await fetch('/api/control/'+c); load(); }
 async function save(){
   let cap=toEnglishDigits(document.getElementById('cap').value), per=toEnglishDigits(document.getElementById('per').value), targ=toEnglishDigits(document.getElementById('targ').value), hcap=toEnglishDigits(document.getElementById('hcap').value);
@@ -290,13 +291,16 @@ async function save(){
 }
 async function load(){ try{ const r=await fetch('/api/data'); const d=await r.json();
   document.getElementById('cap').value=en(d.config.capital,0); document.getElementById('per').value=en(d.config.per_trade,0); document.getElementById('targ').value=en(d.config.target_dollar,1); document.getElementById('hcap').value=en(d.config.hospital_cap,0);
-  document.getElementById('elapsed').innerText=en(d.elapsed,0)+'s'; document.getElementById('rate').innerText='V97.0 - '+en(d.treatment.length,0)+'/'+en(d.config.hospital_cap,0); document.getElementById('profit').innerText='+'+en(d.doctor.profit,2)+'$'; document.getElementById('healed').innerText=en(d.doctor.healed,0)+' شفى';
-  document.getElementById('f1').innerText=en(d.fixed,2)+'$'; document.getElementById('f2').innerText=en(d.loss_pool,2)+'$'; document.getElementById('f2c').innerText=en(d.treatment.length,0)+' دواء'; document.getElementById('f3').innerText='+'+en(d.safi,3)+'$'; document.getElementById('f5').innerText=en(d.total,3)+'$'; document.getElementById('f6').innerText='+'+en(d.ghair,3)+'$ / '+en(d.config.target_dollar,1)+'$';
+  document.getElementById('elapsed').innerText=en(d.elapsed,0)+'s'; document.getElementById('rate').innerText='V97.1 - '+en(d.treatment.length,0)+'/'+en(d.config.hospital_cap,0); document.getElementById('profit').innerText='+'+en(d.doctor.profit,2)+'$'; document.getElementById('healed').innerText=en(d.doctor.healed,0)+' شفى';
+  document.getElementById('f1').innerText=en(d.fixed,2)+'$'; document.getElementById('f2').innerText=en(d.loss_pool,2)+'$'; document.getElementById('f2c').innerText=en(d.treatment.length,0)+' دواء';
+  let safiCls = Number(d.safi)>=0?'profit-pos':'profit-neg'; document.getElementById('f3').innerHTML='<span class="'+safiCls+'">+'+en(d.safi,3)+'$</span>';
+  document.getElementById('f5').innerText=en(d.total,3)+'$';
+  let ghairCls = Number(d.ghair)>=0?'profit-pos':'profit-neg'; document.getElementById('f6').innerHTML='<span class="'+ghairCls+'">'+en(d.ghair,3)+'$ / '+en(d.config.target_dollar,1)+'$</span>';
   document.getElementById('btnRun').innerText=d.is_running?'⏸️ ايقاف':'▶️ تشغيل'; document.getElementById('btnDoc').innerText=d.config.doctor_enabled?'🔥 مولعة ON':'🔥 OFF';
   document.getElementById('src').innerText=d.data_source; document.getElementById('bin').innerText=d.binance_status; document.getElementById('time').innerText=new Date().toLocaleTimeString('en-GB',{hour12:false});
-  let h=''; for(const p of d.positions){ let c=p[5]>=0?'#10B981':'#38BDF8'; h+=`<div class="rw" style="grid-template-columns:1.2fr 0.8fr 1.2fr 0.8fr 0.8fr 0.8fr 0.6fr"><div style="color:#FFF;font-weight:900">${p[0]}</div><div><span class="badge" style="background:#38BDF8;color:#000">BIN</span></div><div style="color:${c};font-size:10px">${p[6]}</div><div>${en(p[2],4)}</div><div>${en(p[3],4)}</div><div style="color:${c}">${en(p[4],3)}$</div><div style="color:${c}">${en(p[5],2)}%</div></div>` } document.getElementById('plist').innerHTML=h||'<div style="padding:10px;text-align:center;color:#D4AF3760">⏳ BINANCE يطحن...</div>';
-  let dl=''; for(const p of d.doctor_positions){ let c=p[5]>=0?'#22D3EE':'#FB7185'; let src=p[10]||'TV'; let invoice=en(p[8],2); let target=en(p[8]+0.07,2); let profit=en(p[4],3); let pctVal=p[11]!=null?p[11]:p[6]; dl+=`<div class="rw" style="grid-template-columns:1fr 1fr 0.6fr 0.6fr 0.6fr 0.8fr 0.6fr;background:#0E1E2E"><div><span class="badge" style="background:#D4AF37;color:#000">${p[0]}</span></div><div style="color:#FACC15;font-weight:700">${p[9]}</div><div style="color:#FB923C">${invoice}$</div><div style="color:#D4AF37;font-weight:800">${target}$</div><div style="color:${c};font-weight:800">${profit}$</div><div style="color:${c};font-size:10px">${en(pctVal,1)}% MOL3A</div><div><span class="badge" style="background:${src.includes('TRADINGVIEW')?'#22D3EE':'#D4AF37'};color:#000;font-size:7px">${src.substring(0,3)}</span></div></div>` } document.getElementById('dlist').innerHTML=dl||'<div style="padding:10px;text-align:center;background:#0E1E2E;color:#D4AF37">👑 0/30 فخامة ✅</div>';
-  let t=''; for(const p of d.treatment){ let loss='-'+en(p[8],2)+'$'; let tgt=en(p[9],4); t+=`<div class="rw" style="grid-template-columns:1fr 1.2fr 0.6fr 0.6fr 0.6fr 0.6fr;background:#1A1500"><div><span class="badge" style="background:#FB923C;color:#000">${p[0]}</span></div><div style="color:#D4AF37;font-size:10px">${p[7]}</div><div style="color:#FB7185">${loss}</div><div style="color:#D4AF37">${tgt}</div><div>${en(p[3],4)}</div><div>5%</div></div>` } document.getElementById('tlist').innerHTML=t||'<div style="padding:10px;text-align:center;background:#1A1500;color:#10B981">👑 0/30 فاضي ✅</div>';
+  let h=''; for(const p of d.positions){ let cls=colorClass(p[5]); let cls2=colorClass(p[4]); h+=`<div class="rw" style="grid-template-columns:1.2fr 0.8fr 1.2fr 0.8fr 0.8fr 0.8fr 0.6fr"><div style="color:#FFF;font-weight:900">${p[0]}</div><div><span class="badge" style="background:#38BDF8;color:#000">BIN</span></div><div class="${cls}" style="font-size:12px">${p[6]}</div><div style="color:#FFD700">${en(p[2],4)}</div><div style="color:#FFF">${en(p[3],4)}</div><div class="${cls2}">${en(p[4],3)}$</div><div class="${cls}">${en(p[5],2)}%</div></div>` } document.getElementById('plist').innerHTML=h||'<div style="padding:10px;text-align:center;color:#D4AF3760">⏳ BINANCE يطحن...</div>';
+  let dl=''; for(const p of d.doctor_positions){ let cls=colorClass(p[5]); let invoice=en(p[8],2); let target=en(p[8]+0.07,2); let profitCls=colorClass(p[4]); dl+=`<div class="rw" style="grid-template-columns:1fr 1fr 0.6fr 0.6fr 0.6fr 0.8fr 0.6fr;background:#0E1E2E"><div><span class="badge" style="background:#D4AF37;color:#000">${p[0]}</span></div><div style="color:#FACC15;font-weight:800">${p[9]}</div><div style="color:#FB923C">${invoice}$</div><div style="color:#D4AF37">${target}$</div><div class="${profitCls}">${en(p[4],3)}$</div><div class="${cls}" style="font-size:11px">${p[6]}</div><div><span class="badge" style="background:${(p[10]||'TV').includes('TRADINGVIEW')?'#22D3EE':'#D4AF37'};color:#000;font-size:8px">${(p[10]||'TV').substring(0,3)}</span></div></div>` } document.getElementById('dlist').innerHTML=dl||'<div style="padding:10px;text-align:center;background:#0E1E2E;color:#D4AF37">👑 0/30 فخامة ✅</div>';
+  let t=''; for(const p of d.treatment){ let loss='-'+en(p[8],2)+'$'; let tgt=en(p[9],4); t+=`<div class="rw" style="grid-template-columns:1fr 1.2fr 0.6fr 0.6fr 0.6fr 0.6fr;background:#1A1500"><div><span class="badge" style="background:#FB923C;color:#000">${p[0]}</span></div><div style="color:#D4AF37;font-size:11px">${p[7]}</div><div class="profit-neg">${loss}</div><div style="color:#FFD700">${tgt}</div><div>${en(p[3],4)}</div><div class="profit-neg">5%</div></div>` } document.getElementById('tlist').innerHTML=t||'<div style="padding:10px;text-align:center;background:#1A1500;color:#10B981">👑 0/30 فاضي ✅</div>';
 }catch(e){} } setInterval(load,1000); load();
 </script></body></html>
     """
