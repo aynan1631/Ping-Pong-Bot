@@ -1,12 +1,13 @@
 """
-V90 FINAL - مستشفى ما يوقف البوت - يعالج وهو شغال
+V91 FINAL - الطبيب الخاص 👨‍⚕️ - كل مريض له طبيب يجيب فاتورته
+فكرة الريس: الشفاء المباشر - 0/30 دائماً
 """
 from flask import Flask, jsonify, request
 import threading, time, os, requests
 app = Flask(__name__)
 
-config={"capital":1000.0,"per_trade":100.0,"target_dollar":0.5,"sl_pct":0.5,"hospital_cap":30,"max_pos":8,"min_vol":2000000}
-state={"fixed":1000.0,"safi":0.0,"ghair":0.0,"trades_closed":0,"loss_pool":0.0,"positions":[],"treatment":[],"binance_status":"✅ V90 لا يوقف","data_source":"V90 مستشفى 30","is_running":True,"doctor":{"healed":0,"profit":0.0,"start":time.time(),"rate":98.5},"specialty":False,"last":"V90 شغال حتى لو زحمة"}
+config={"capital":1000.0,"per_trade":100.0,"target_dollar":0.5,"sl_pct":0.5,"hospital_cap":30,"max_pos":8,"min_vol":2000000,"doctor_enabled":True,"doctor_extra":0.07}
+state={"fixed":1000.0,"safi":0.0,"ghair":0.0,"trades_closed":0,"loss_pool":0.0,"positions":[],"treatment":[],"doctor_positions":[],"binance_status":"✅ V91 الطبيب الخاص","data_source":"V91 شفاء مباشر","is_running":True,"doctor":{"healed":0,"profit":0.0,"start":time.time(),"rate":98.5,"active_patient":None,"active_doctor":None},"specialty":False,"last":"V91 جاهز - الطبيب الخاص","healing_mode":False}
 
 def ema(data, period):
     if len(data)<period: return None
@@ -42,6 +43,14 @@ def get_hot_coins():
         return hot[:15]
     except: return []
 
+def get_strongest_coin():
+    """V91 - يختار الأقوى صعوداً"""
+    try:
+        hot = get_hot_coins()
+        if hot: return hot[0] # الأقوى
+        return None
+    except: return None
+
 def engine():
     while True:
         try:
@@ -54,50 +63,99 @@ def engine():
                         pp=(p[3]-p[2])/p[2]*100; p[4]=round(config["per_trade"]*pp/100,3); p[5]=round(pp,2)
                         p[6]=f"مولعة {pp:.1f}%"
                 except: pass
+
+            # ===== V91 الطبيب الخاص - الشفاء المباشر =====
+            if config["doctor_enabled"] and len(state["treatment"]) > 0 and len(state["doctor_positions"])==0:
+                # تفعيل وضع الشفاء - إيقاف فتح جديد
+                state["healing_mode"]=True
+                state["treatment"].sort(key=lambda x: x[8] if len(x)>8 else 0) # الأقدم
+                oldest = state["treatment"][0] # SAGA مثلاً
+                invoice = oldest[8] # 0.720$
+                target = invoice + config["doctor_extra"]
+
+                strongest = get_strongest_coin()
+                if strongest:
+                    sym, pct, price, vol, power, bull = strongest
+                    # لا تختار نفس المريض
+                    exist = set([x[0] for x in state["positions"]+state["treatment"]+state["doctor_positions"]])
+                    if sym not in exist:
+                        # افتح طبيب
+                        state["doctor_positions"].append([sym, f"طبيب لـ {oldest[0]}", price*0.9995, price, 0.0, 0.0, f"طبيب {pct:.1f}% يجيب {target:.2f}$", time.time(), invoice, oldest[0]])
+                        state["doctor"]["active_patient"]=oldest[0]
+                        state["doctor"]["active_doctor"]=sym
+                        state["last"]=f"👨‍⚕️ طبيب {sym} يعالج {oldest[0]} فاتورة {invoice:.2f}$"
+                        state["binance_status"]=f"👨‍⚕️ يعالج {oldest[0]} بـ {sym}"
+
+            # متابعة الطبيب
+            for d in state["doctor_positions"][:]:
+                try:
+                    r=requests.get(f"https://api.binance.com/api/v3/ticker/price?symbol={d[0]}USDT", timeout=3)
+                    if r.status_code==200:
+                        np=float(r.json()["price"]); d[3]=np
+                        pp=(d[3]-d[2])/d[2]*100; d[4]=round(config["per_trade"]*pp/100,3); d[5]=round(pp,2)
+                        invoice = d[8]; target = invoice + config["doctor_extra"]
+                        # هل الطبيب جاب الفاتورة؟
+                        if d[4] >= target:
+                            # شفاء! سكر المريض + الطبيب
+                            patient_sym = d[9]
+                            # دور المريض وشله
+                            for t in state["treatment"][:]:
+                                if t[0]==patient_sym:
+                                    state["treatment"].remove(t)
+                                    state["doctor"]["healed"]+=1
+                                    state["doctor"]["profit"]+=invoice
+                                    state["safi"]+=invoice # الـ 0.72$ تدخل الصافي!
+                                    state["last"]=f"✅ شفى {patient_sym} بـ {d[0]} +{invoice:.2f}$ للصافي"
+                                    break
+                            state["doctor_positions"].remove(d)
+                            state["doctor"]["active_patient"]=None
+                            state["doctor"]["active_doctor"]=None
+                            if len(state["treatment"])==0:
+                                state["healing_mode"]=False
+                except: pass
+
+            # علاج قديم (احتياطي)
             for p in state["treatment"]:
                 try:
                     r=requests.get(f"https://api.binance.com/api/v3/ticker/price?symbol={p[0]}USDT", timeout=2)
                     if r.status_code==200:
-                        np=float(r.json()["price"]); old=p[3]; p[3]=np
-                        # علاج: إذا رجع 2% من الخسارة -> شفاء
-                        if np > p[2]*0.995: # رجع قريب الدخول
+                        np=float(r.json()["price"])
+                        if np > p[2]*0.995:
                             profit = (np - p[2])/p[2]*config["per_trade"]
                             state["doctor"]["healed"]+=1
                             state["doctor"]["profit"]+=profit
-                            state["safi"]+=profit*0.5 # نص الربح للصافي
+                            state["safi"]+=profit*0.5
                             state["treatment"].remove(p)
                             state["last"]=f"✅ شفى {p[0]} {profit:.2f}$"
                             continue
                         p[3]=np
                 except: pass
 
-            state["ghair"]=round(sum(p[4] for p in state["positions"]),3)
+            state["ghair"]=round(sum(p[4] for p in state["positions"]) + sum(d[4] for d in state["doctor_positions"]),3)
             state["loss_pool"]=round(sum(p[8] for p in state["treatment"]),3)
 
-            # هدف 0.5$ يقفل
-            if state["ghair"] >= config["target_dollar"] and len(state["positions"])>0:
+            if state["ghair"] >= config["target_dollar"] and len(state["positions"])>0 and not state["healing_mode"]:
                 profit=state["ghair"]; state["safi"]+=profit; state["fixed"]=config["capital"]+state["safi"]
                 state["trades_closed"]+=len(state["positions"]); state["positions"]=[]; state["ghair"]=0.0
                 state["last"]=f"✅ قفل {profit:.3f}$ -> صافي {state['safi']:.2f}$"
 
-            # نقل للمستشفى
             to_hosp=[p for p in state["positions"] if p[5] <= -config["sl_pct"]]
             for p in to_hosp:
                 if p in state["positions"]:
                     state["positions"].remove(p)
                     state["treatment"].append([p[0],"علاج",p[2],p[3],0.0,0.0,0.35,f"{p[0]} يعالج {abs(p[4]):.2f}$",abs(p[4]),1.0])
 
-            # ** FIX الزحمة: لا يوقف البوت - فقط يوقف فتح جديد **
             if len(state["treatment"]) >= config["hospital_cap"]:
                 state["specialty"]=True
-                state["binance_status"]=f"🏥 زحمة {len(state['treatment'])}/30 - يعالج بس"
-                # ما نوقف is_running - يبقى شغال يعالج
+                if not state["healing_mode"]:
+                    state["binance_status"]=f"🏥 زحمة {len(state['treatment'])}/30 - الطبيب يعالج"
             else:
                 state["specialty"]=False
-                state["binance_status"]=f"✅ شغال {len(state['positions'])}/8 - مستشفى {len(state['treatment'])}/30"
-                # فتح جديد فقط إذا المستشفى مو مليان
-                if len(state["positions"]) < config["max_pos"]:
-                    hot=get_hot_coins(); exist=set([x[0] for x in state["positions"]+state["treatment"]])
+                if not state["healing_mode"]:
+                    state["binance_status"]=f"✅ شغال {len(state['positions'])}/8 - مستشفى {len(state['treatment'])}/30"
+                # V91: لا يفتح جديد إذا في وضع شفاء
+                if len(state["positions"]) < config["max_pos"] and not state["healing_mode"]:
+                    hot=get_hot_coins(); exist=set([x[0] for x in state["positions"]+state["treatment"]+state["doctor_positions"]])
                     for sym,pct,price,vol,power,bull in hot:
                         if sym not in exist and len(state["positions"])<config["max_pos"]:
                             state["positions"].append([sym,"SPOT",price*0.9995,price,0.0,0.0,f"مولعة {pct:.1f}%",time.time()]); exist.add(sym)
@@ -117,16 +175,18 @@ def control(cmd):
         if prof>0: state["safi"]+=prof; state["fixed"]=config["capital"]+state["safi"]; state["trades_closed"]+=len(state["positions"])
         state["positions"]=[]; state["ghair"]=0.0; state["last"]=f"🔒 قفل يدوي {prof:.3f}$"
     elif cmd=="reset":
-        state["fixed"]=config["capital"]; state["safi"]=0.0; state["ghair"]=0.0; state["loss_pool"]=0.0; state["trades_closed"]=0; state["positions"]=[]; state["treatment"]=[]; state["doctor"]={"healed":0,"profit":0.0,"start":time.time(),"rate":98.5}; state["specialty"]=False; state["is_running"]=True
+        state["fixed"]=config["capital"]; state["safi"]=0.0; state["ghair"]=0.0; state["loss_pool"]=0.0; state["trades_closed"]=0; state["positions"]=[]; state["treatment"]=[]; state["doctor_positions"]=[]; state["doctor"]={"healed":0,"profit":0.0,"start":time.time(),"rate":98.5,"active_patient":None,"active_doctor":None}; state["specialty"]=False; state["is_running"]=True; state["healing_mode"]=False
     elif cmd=="try":
         hot=get_hot_coins()
         if hot: s=hot[0]; state["positions"].append([s[0],"SPOT",s[2]*0.999,s[2],0.0,0.0,f"يدوي {s[1]:.1f}%",time.time()])
-    elif cmd=="specialty": state["specialty"]=False; state["is_running"]=True; state["last"]="✅ فك الزحمة - شغال"
-    elif cmd=="heal": # زر جديد يعالج الكل
+    elif cmd=="specialty": state["specialty"]=False; state["is_running"]=True; state["healing_mode"]=False; state["last"]="✅ فك الزحمة - شغال"
+    elif cmd=="heal":
         healed=0
         for p in state["treatment"][:]:
             state["treatment"].remove(p); healed+=1
-        state["doctor"]["healed"]+=healed; state["last"]=f"✅ شفى {healed} مرضى"
+        state["doctor"]["healed"]+=healed; state["last"]=f"✅ شفى {healed} مرضى يدوي"
+        state["healing_mode"]=False; state["doctor_positions"]=[]
+    elif cmd=="doctor": config["doctor_enabled"]=not config["doctor_enabled"]; state["last"]=f"👨‍⚕️ الطبيب {'ON' if config['doctor_enabled'] else 'OFF'}"
     return jsonify({"ok":True})
 
 @app.route('/api/config', methods=['POST'])
@@ -144,28 +204,29 @@ def set_config():
 @app.route('/api/data')
 def api_data():
     total=state["fixed"]+state["safi"]+state["ghair"]-state["loss_pool"]; elapsed=int(time.time()-state["doctor"]["start"])
-    return jsonify({"fixed":state["fixed"],"safi":state["safi"],"ghair":state["ghair"],"total":round(total,3),"trades_closed":state["trades_closed"],"loss_pool":state["loss_pool"],"positions":state["positions"],"treatment":state["treatment"],"binance_status":state["binance_status"],"data_source":f"V90 - {len(state['treatment'])}/{config['hospital_cap']} مريض","is_running":state["is_running"],"doctor":state["doctor"],"elapsed":elapsed,"heal_rate":98.5,"specialty":state["specialty"],"last_healed":state["last"],"config":config})
+    return jsonify({"fixed":state["fixed"],"safi":state["safi"],"ghair":state["ghair"],"total":round(total,3),"trades_closed":state["trades_closed"],"loss_pool":state["loss_pool"],"positions":state["positions"],"treatment":state["treatment"],"doctor_positions":state["doctor_positions"],"binance_status":state["binance_status"],"data_source":f"V91 طبيب خاص - {len(state['treatment'])}/{config['hospital_cap']}","is_running":state["is_running"],"doctor":state["doctor"],"elapsed":elapsed,"heal_rate":98.5,"specialty":state["specialty"],"last_healed":state["last"],"config":config,"healing_mode":state["healing_mode"]})
 
 @app.route('/')
 def home():
     return """<html dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link href="https://fonts.googleapis.com/css2?family=Cairo:wght@700;900&family=JetBrains+Mono:wght@800&display=swap" rel="stylesheet"><style>
-*{box-sizing:border-box}body{margin:0;background:#050817;color:#fff;font-family:'Cairo'}.docbar{display:flex;justify-content:space-between;padding:8px 10px;background:#002a00;border:2px solid #00ff66;border-radius:10px;margin:6px;font-size:11px;font-weight:900;color:#00ff66}.docbar.spec{background:#2a0000;border-color:#ff9800;color:#ff9800}
+*{box-sizing:border-box}body{margin:0;background:#050817;color:#fff;font-family:'Cairo'}.docbar{display:flex;justify-content:space-between;padding:8px 10px;background:#002a00;border:2px solid #00ff66;border-radius:10px;margin:6px;font-size:11px;font-weight:900;color:#00ff66}.docbar.spec{background:#2a0000;border-color:#ff9800;color:#ff9800}.docbar.heal{background:#001a4d;border-color:#00e5ff;color:#00e5ff;animation:pulse 1s infinite}@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.6}}
 .panel{background:#0a0e2a;border:2px solid #1e2560;border-radius:12px;margin:6px;padding:10px}.panel h3{margin:0 0 8px;font-size:13px;color:#00ff66;text-align:center}.ctrls{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px}.ctrl{background:#1118a0;border:1px solid #2a32b0;border-radius:10px;padding:8px;text-align:center}.ctrl label{font-size:10px;color:#aab;display:block;margin-bottom:4px}.ctrl input{width:100%;background:#050817;border:1px solid #2a32b0;border-radius:6px;color:#00ff66;font-family:'JetBrains Mono';font-weight:900;text-align:center;padding:6px;font-size:14px}
-.header{display:flex;gap:8px;justify-content:center;padding:8px;background:#070a1e;flex-wrap:wrap}.hbtn{border:none;border-radius:20px;padding:8px 14px;font-family:'Cairo';font-size:11px;font-weight:900;cursor:pointer}.hbtn.orange{background:#ff9800;color:#000}.hbtn.yellow{background:#ffeb3b;color:#000}.hbtn.red{background:#d32f2f;color:#fff}.hbtn.green{background:#00ff66;color:#000}.hbtn.blue{background:#2196f3;color:#fff}.hbtn.purple{background:#9c27b0;color:#fff}
-.cards{display:grid;grid-template-columns:repeat(5,1fr);gap:5px;padding:6px;background:#070a1e}.c{background:#1118a0;border:1px solid #2a32b0;border-radius:12px;padding:8px 2px;text-align:center}.c.gold{border:2px solid #00ff66;box-shadow:0 0 15px #00ff6655}.c.ph{background:#1a0f00;border:2px solid #ff9800}.l{font-size:9px;color:#aab}.v{font-family:'JetBrains Mono';font-size:14px;font-weight:900;direction:ltr}.v.w{color:#fff}.v.g{color:#00ff66}.v.r{color:#ff3b30}
-.table{margin:6px;border-radius:14px;overflow:hidden;border:2px solid #1e2560}.thead{display:grid;padding:8px 10px;font-size:11px;font-weight:900;color:#ffeb3b;background:#1118d0}.row{display:grid;padding:7px 10px;font-size:11px;background:#0a0e8a;border-top:1px solid #1e2560;align-items:center}.row div{text-align:center;font-family:'JetBrains Mono';font-weight:700}.badge{border-radius:12px;padding:3px 10px;font-size:10px;font-weight:900;display:inline-block}.badge.green{background:#00ff66;color:#000}.badge.orange{background:#ff9800;color:#000}.status{padding:6px 10px;font-size:10px;background:#0a0e2a;color:#00e5ff;border-top:1px solid #1e2560;display:flex;justify-content:space-between}
+.header{display:flex;gap:8px;justify-content:center;padding:8px;background:#070a1e;flex-wrap:wrap}.hbtn{border:none;border-radius:20px;padding:8px 14px;font-family:'Cairo';font-size:11px;font-weight:900;cursor:pointer}.hbtn.orange{background:#ff9800;color:#000}.hbtn.yellow{background:#ffeb3b;color:#000}.hbtn.red{background:#d32f2f;color:#fff}.hbtn.green{background:#00ff66;color:#000}.hbtn.blue{background:#2196f3;color:#fff}.hbtn.purple{background:#9c27b0;color:#fff}.hbtn.cyan{background:#00e5ff;color:#000}
+.cards{display:grid;grid-template-columns:repeat(5,1fr);gap:5px;padding:6px;background:#070a1e}.c{background:#1118a0;border:1px solid #2a32b0;border-radius:12px;padding:8px 2px;text-align:center}.c.gold{border:2px solid #00ff66;box-shadow:0 0 15px #00ff6655}.c.ph{background:#1a0f00;border:2px solid #ff9800}.c.doc{background:#001a4d;border:2px solid #00e5ff}.l{font-size:9px;color:#aab}.v{font-family:'JetBrains Mono';font-size:14px;font-weight:900;direction:ltr}.v.w{color:#fff}.v.g{color:#00ff66}.v.r{color:#ff3b30}
+.table{margin:6px;border-radius:14px;overflow:hidden;border:2px solid #1e2560}.thead{display:grid;padding:8px 10px;font-size:11px;font-weight:900;color:#ffeb3b;background:#1118d0}.row{display:grid;padding:7px 10px;font-size:11px;background:#0a0e8a;border-top:1px solid #1e2560;align-items:center}.row div{text-align:center;font-family:'JetBrains Mono';font-weight:700}.badge{border-radius:12px;padding:3px 10px;font-size:10px;font-weight:900;display:inline-block}.badge.green{background:#00ff66;color:#000}.badge.orange{background:#ff9800;color:#000}.badge.cyan{background:#00e5ff;color:#000}.status{padding:6px 10px;font-size:10px;background:#0a0e2a;color:#00e5ff;border-top:1px solid #1e2560;display:flex;justify-content:space-between}
 </style></head><body>
-<div class="docbar" id="docbar"><span id="elapsed">⏱️ 0ث</span><span id="rate">📊 V90 لا يوقف</span><span id="profit">💰 علاج: +0.00$</span><span id="healed">شفى: 0</span><span id="spec">🏥 طبيعي</span></div>
-<div class="panel"><h3>✅ V90 - مستشفى 30 ما يوقف البوت - يعالج وهو شغال 💪</h3><div class="ctrls"><div class="ctrl"><label>💰 رأس المال $</label><input id="cap" type="number" value="1000" onchange="save()"></div><div class="ctrl"><label>📦 حجم الصفقة $</label><input id="per" type="number" value="100" onchange="save()"></div><div class="ctrl"><label>🎯 هدف قفل $</label><input id="targ" type="number" value="0.5" step="0.1" onchange="save()"><div style="font-size:10px;color:#00ff66" id="targVal">0.5$</div></div><div class="ctrl"><label>🏥 سعة المستشفى (30)</label><input id="hcap" type="number" value="30" onchange="save()"></div></div></div>
-<div class="header"><button class="hbtn orange" onclick="ctrl('try')">🧪 دخول</button><button class="hbtn yellow" onclick="ctrl('reset')">🔄 تصفير</button><button class="hbtn red" onclick="ctrl('lock')">🔒 قفل -> صافي</button><button class="hbtn green" id="btnRun" onclick="ctrl('toggle')">⏸️ ايقاف</button><button class="hbtn blue" onclick="ctrl('specialty')">🏥 فك الزحمة</button><button class="hbtn purple" onclick="ctrl('heal')">💊 شفاء الكل</button></div>
-<div class="cards"><div class="c"><div class="l">💰 ثابت</div><div class="v w" id="f1">1000$</div></div><div class="c ph"><div class="l">📦 الصيدلية</div><div class="v r" id="f2">-0.00$</div><div class="l" id="f2c">0 دواء</div></div><div class="c" style="border:2px solid #00ff66;box-shadow:0 0 10px #00ff66"><div class="l">💹 صافي محقق</div><div class="v g" id="f3" style="font-size:20px">+0$</div></div><div class="c gold"><div class="l">💎 الإجمالي</div><div class="v g" id="f5">1000$</div></div><div class="c"><div class="l">📈 غير محققة</div><div class="v g" id="f6">+0.00$</div></div></div>
+<div class="docbar" id="docbar"><span id="elapsed">⏱️ 0ث</span><span id="rate">📊 V91 طبيب خاص</span><span id="profit">💰 علاج: +0.00$</span><span id="healed">شفى: 0</span><span id="spec">🏥 طبيعي</span></div>
+<div class="panel"><h3>👨‍⚕️ V91 - الطبيب الخاص - كل مريض له طبيب يجيب فاتورته - 0/30 دائماً 💪</h3><div class="ctrls"><div class="ctrl"><label>💰 رأس المال $</label><input id="cap" type="number" value="1000" onchange="save()"></div><div class="ctrl"><label>📦 حجم الصفقة $</label><input id="per" type="number" value="100" onchange="save()"></div><div class="ctrl"><label>🎯 هدف قفل $</label><input id="targ" type="number" value="0.5" step="0.1" onchange="save()"><div style="font-size:10px;color:#00ff66" id="targVal">0.5$</div></div><div class="ctrl"><label>🏥 سعة المستشفى (30)</label><input id="hcap" type="number" value="30" onchange="save()"></div></div></div>
+<div class="header"><button class="hbtn orange" onclick="ctrl('try')">🧪 دخول</button><button class="hbtn yellow" onclick="ctrl('reset')">🔄 تصفير</button><button class="hbtn red" onclick="ctrl('lock')">🔒 قفل -> صافي</button><button class="hbtn green" id="btnRun" onclick="ctrl('toggle')">⏸️ ايقاف</button><button class="hbtn blue" onclick="ctrl('specialty')">🏥 فك الزحمة</button><button class="hbtn purple" onclick="ctrl('heal')">💊 شفاء الكل</button><button class="hbtn cyan" id="btnDoc" onclick="ctrl('doctor')">👨‍⚕️ طبيب ON</button></div>
+<div class="cards"><div class="c"><div class="l">💰 ثابت</div><div class="v w" id="f1">1000$</div></div><div class="c ph"><div class="l">📦 الصيدلية حمراء</div><div class="v r" id="f2">-0.00$</div><div class="l" id="f2c">0 دواء</div></div><div class="c" style="border:2px solid #00ff66;box-shadow:0 0 10px #00ff66"><div class="l">💹 صافي محقق</div><div class="v g" id="f3" style="font-size:20px">+0$</div></div><div class="c gold"><div class="l">💎 الإجمالي</div><div class="v g" id="f5">1000$</div></div><div class="c"><div class="l">📈 غير محققة</div><div class="v g" id="f6">+0.00$</div></div></div>
 <div class="table"><div class="thead" style="grid-template-columns:1.2fr 0.8fr 1.5fr 1fr 1fr 1fr 0.8fr"><div>عملة</div><div>نوع</div><div>حالة</div><div>دخول</div><div>حالي</div><div>ربح $</div><div>%</div></div><div id="plist"></div></div>
+<div class="table" style="border-color:#00e5ff" id="docTable"><div class="thead" style="grid-template-columns:1fr 1.5fr 0.8fr 0.8fr 0.8fr 1fr;background:#001a4d;color:#00e5ff"><div>👨‍⚕️ طبيب</div><div>يعالج</div><div>فاتورة</div><div>هدف</div><div>ربح</div><div>حالة</div></div><div id="dlist"></div></div>
 <div class="table" style="border-color:#ff9800"><div class="thead" style="grid-template-columns:1fr 1.5fr 0.8fr 0.8fr 0.8fr 1fr;background:#1a0f00;color:#ff9800"><div>💊 مستشفى</div><div>يعالج</div><div>خسارة</div><div>هدف</div><div>حالي</div><div>نسبة</div></div><div id="tlist"></div></div>
-<div class="status"><span id="src">📡 V90</span><span id="bin">...</span><span id="time">...</span></div>
+<div class="status"><span id="src">📡 V91</span><span id="bin">...</span><span id="time">...</span></div>
 <script>
 async function ctrl(c){ await fetch('/api/control/'+c); load(); }
 async function save(){ const cap=document.getElementById('cap').value, per=document.getElementById('per').value, targ=document.getElementById('targ').value, hcap=document.getElementById('hcap').value; const res=await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({capital:cap,per_trade:per,target:parseFloat(targ),target_dollar:parseFloat(targ),hcap:hcap})}); const j=await res.json(); document.getElementById('targVal').innerText=j.config.target_dollar+'$ ✅'; }
-async function load(){ try{ const r=await fetch('/api/data'); const d=await r.json(); document.getElementById('cap').value=d.config.capital; document.getElementById('per').value=d.config.per_trade; document.getElementById('targ').value=d.config.target_dollar; document.getElementById('hcap').value=d.config.hospital_cap; document.getElementById('elapsed').innerText='⏱️ '+d.elapsed+'ث'; document.getElementById('rate').innerText='📊 V90 - '+d.treatment.length+'/'+d.config.hospital_cap; document.getElementById('profit').innerText='💰 علاج: +'+d.doctor.profit.toFixed(2)+'$'; document.getElementById('healed').innerText='شفى: '+d.doctor.healed; const bar=document.getElementById('docbar'); if(d.specialty){ bar.className='docbar spec'; document.getElementById('spec').innerText='🔴 زحمة '+d.treatment.length+' - يعالج'; } else { bar.className='docbar'; document.getElementById('spec').innerText='✅ '+d.last_healed; } document.getElementById('f1').innerText=d.fixed.toFixed(0)+'$'; document.getElementById('f2').innerText=d.loss_pool.toFixed(2)+'$'; document.getElementById('f2c').innerText=d.treatment.length+' دواء'; document.getElementById('f3').innerText='+'+d.safi.toFixed(3)+'$'; document.getElementById('f5').innerText=d.total.toFixed(3)+'$'; let col=d.ghair>=d.config.target_dollar?'#00ff66':d.ghair>=0?'#ffeb3b':'#ff3b30'; document.getElementById('f6').innerHTML='<span style="color:'+col+'">+'+d.ghair.toFixed(3)+'$</span> / '+d.config.target_dollar+'$'; document.getElementById('btnRun').innerText=d.is_running?'⏸️ ايقاف':'▶️ تشغيل'; document.getElementById('src').innerText='📡 '+d.data_source; document.getElementById('bin').innerText=d.binance_status; document.getElementById('time').innerText=new Date().toLocaleTimeString(); let h=''; for(const p of d.positions){ let c=p[5]>=0?'#00ff66':'#ff3b30'; h+=`<div class="row" style="grid-template-columns:1.2fr 0.8fr 1.5fr 1fr 1fr 1fr 0.8fr"><div style="color:#fff;font-weight:900">${p[0]}</div><div><span class="badge green">${p[1]}</span></div><div style="color:${c}">${p[6]}</div><div>${p[2].toFixed(4)}</div><div>${p[3].toFixed(4)}</div><div style="color:${c}">${p[4].toFixed(3)}$</div><div style="color:${c}">${p[5].toFixed(2)}%</div></div>` } document.getElementById('plist').innerHTML=h||'<div style="padding:12px;text-align:center">⏳ V90 يعالج ويفتح</div>'; let t=''; for(const p of d.treatment){ t+=`<div class="row" style="grid-template-columns:1fr 1.5fr 0.8fr 0.8fr 0.8fr 1fr;background:#1a0f00"><div><span class="badge orange">${p[0]}</span></div><div style="color:#ffeb3b">${p[7]}</div><div style="color:#ff3b30">-${p[8].toFixed(2)}$</div><div style="color:#ffeb3b">${p[9].toFixed(2)}$</div><div>${p[3].toFixed(4)}</div><div>5%</div></div>` } document.getElementById('tlist').innerHTML=t||'<div style="padding:10px;text-align:center;background:#1a0f00">المستشفى فاضي ✅</div>'; }catch(e){} } setInterval(load,1000); load();
+async function load(){ try{ const r=await fetch('/api/data'); const d=await r.json(); document.getElementById('cap').value=d.config.capital; document.getElementById('per').value=d.config.per_trade; document.getElementById('targ').value=d.config.target_dollar; document.getElementById('hcap').value=d.config.hospital_cap; document.getElementById('elapsed').innerText='⏱️ '+d.elapsed+'ث'; document.getElementById('rate').innerText='📊 V91 - '+d.treatment.length+'/'+d.config.hospital_cap; document.getElementById('profit').innerText='💰 علاج: +'+d.doctor.profit.toFixed(2)+'$'; document.getElementById('healed').innerText='شفى: '+d.doctor.healed; const bar=document.getElementById('docbar'); if(d.healing_mode){ bar.className='docbar heal'; document.getElementById('spec').innerText='👨‍⚕️ يعالج '+d.doctor.active_patient+' بـ '+d.doctor.active_doctor; } else if(d.specialty){ bar.className='docbar spec'; document.getElementById('spec').innerText='🔴 زحمة '+d.treatment.length; } else { bar.className='docbar'; document.getElementById('spec').innerText='✅ '+d.last_healed; } document.getElementById('f1').innerText=d.fixed.toFixed(0)+'$'; document.getElementById('f2').innerText=d.loss_pool.toFixed(2)+'$'; document.getElementById('f2c').innerText=d.treatment.length+' دواء'; document.getElementById('f3').innerText='+'+d.safi.toFixed(3)+'$'; document.getElementById('f5').innerText=d.total.toFixed(3)+'$'; let col=d.ghair>=d.config.target_dollar?'#00ff66':d.ghair>=0?'#ffeb3b':'#ff3b30'; document.getElementById('f6').innerHTML='<span style="color:'+col+'">+'+d.ghair.toFixed(3)+'$</span> / '+d.config.target_dollar+'$'; document.getElementById('btnRun').innerText=d.is_running?'⏸️ ايقاف':'▶️ تشغيل'; document.getElementById('btnDoc').innerText=d.config.doctor_enabled?'👨‍⚕️ طبيب ON':'👨‍⚕️ طبيب OFF'; document.getElementById('src').innerText='📡 '+d.data_source; document.getElementById('bin').innerText=d.binance_status; document.getElementById('time').innerText=new Date().toLocaleTimeString(); let h=''; for(const p of d.positions){ let c=p[5]>=0?'#00ff66':'#ff3b30'; h+=`<div class="row" style="grid-template-columns:1.2fr 0.8fr 1.5fr 1fr 1fr 1fr 0.8fr"><div style="color:#fff;font-weight:900">${p[0]}</div><div><span class="badge green">${p[1]}</span></div><div style="color:${c}">${p[6]}</div><div>${p[2].toFixed(4)}</div><div>${p[3].toFixed(4)}</div><div style="color:${c}">${p[4].toFixed(3)}$</div><div style="color:${c}">${p[5].toFixed(2)}%</div></div>` } document.getElementById('plist').innerHTML=h||'<div style="padding:12px;text-align:center">⏳ V91 يعالج ويفتح</div>'; let dl=''; for(const p of d.doctor_positions){ let c=p[5]>=0?'#00ff66':'#ff3b30'; dl+=`<div class="row" style="grid-template-columns:1fr 1.5fr 0.8fr 0.8fr 0.8fr 1fr;background:#001a4d"><div><span class="badge cyan">${p[0]}</span></div><div style="color:#00e5ff">👨‍⚕️ يعالج ${p[9]} فاتورة ${p[8].toFixed(2)}$</div><div style="color:#ff3b30">${p[8].toFixed(2)}$</div><div style="color:#ffeb3b">${(p[8]+0.07).toFixed(2)}$</div><div style="color:${c}">${p[4].toFixed(3)}$</div><div style="color:${c}">${p[6]}</div></div>` } document.getElementById('dlist').innerHTML=dl||'<div style="padding:10px;text-align:center;background:#001a4d">لا يوجد طبيب نشط - المستشفى فاضي ✅</div>'; let t=''; for(const p of d.treatment){ t+=`<div class="row" style="grid-template-columns:1fr 1.5fr 0.8fr 0.8fr 0.8fr 1fr;background:#1a0f00"><div><span class="badge orange">${p[0]}</span></div><div style="color:#ffeb3b">${p[7]}</div><div style="color:#ff3b30">-${p[8].toFixed(2)}$</div><div style="color:#ffeb3b">${p[9].toFixed(2)}$</div><div>${p[3].toFixed(4)}</div><div>5%</div></div>` } document.getElementById('tlist').innerHTML=t||'<div style="padding:10px;text-align:center;background:#1a0f00">المستشفى فاضي ✅ 0/30</div>'; }catch(e){} } setInterval(load,1000); load();
 </script></body></html>"""
 if __name__=="__main__":
     app.run(host="0.0.0.0",port=int(os.environ.get("PORT",8080)))
