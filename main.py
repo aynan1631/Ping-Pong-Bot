@@ -1,13 +1,12 @@
 """
-V97.5 EASY HEAL - نفس V97.1 + وقف خسارة 0.35% + علاج 60% + صبر 180 ثانية
+V98 FORCE HEAL SAFI LOCKED - نفس V97.5 + شرط الريس: الصافي ما يتغير الا بيدك
 """
 from flask import Flask, jsonify, request
 import threading, time, os, requests
 app = Flask(__name__)
 
-# تم التعديل هنا - وقف خسارة اقل + طبيب يصبر
 config={"capital":1000.0,"per_trade":100.0,"target_dollar":0.5,"sl_pct":0.35,"hospital_cap":30,"max_pos":8,"min_vol":2000000,"doctor_enabled":True,"doctor_auto":True,"doctor_threshold":2,"doctor_extra":0.04,"doctor_sl":1.0,"max_doctors":3}
-state={"fixed":1000.0,"safi":0.0,"ghair":0.0,"trades_closed":0,"loss_pool":0.0,"positions":[],"treatment":[],"doctor_positions":[],"binance_status":"V97.5 EASY HEAL","data_source":"V97.5 LUXURY DUAL","is_running":True,"doctor":{"healed":0,"profit":0.0,"start":time.time(),"rate":99.5,"active_patient":None,"active_doctor":None},"specialty":False,"last":"V97.5 Ready","healing_mode":False}
+state={"fixed":1000.0,"safi":0.0,"ghair":0.0,"trades_closed":0,"loss_pool":0.0,"positions":[],"treatment":[],"doctor_positions":[],"binance_status":"V98 SAFI LOCKED","data_source":"V98 FORCE HEAL","is_running":True,"doctor":{"healed":0,"profit":0.0,"start":time.time(),"rate":99.5,"active_patient":None,"active_doctor":None},"specialty":False,"last":"V98 Ready - Safi Locked","healing_mode":False}
 
 def ema(data, period):
     if len(data)<period: return None
@@ -106,6 +105,11 @@ def engine():
                     if r.status_code==200:
                         np=float(r.json()["price"]); p[3]=np; pp=(p[3]-p[2])/p[2]*100; p[4]=round(config["per_trade"]*pp/100,3); p[5]=round(pp,2); p[6]=f"MOL3A {pp:.1f}%"
                 except: pass
+            # V98 FIX 1: طرد اي طبيب يعالج نفسه
+            for d in state["doctor_positions"][:]:
+                if d[0] == d[9]:
+                    state["doctor_positions"].remove(d)
+                    state["last"]=f"طرد {d[0]} يعالج نفسه - V98"
             if config["doctor_auto"] and len(state["treatment"]) >= config["doctor_threshold"]:
                 config["doctor_enabled"]=True; state["healing_mode"]=True
             if len(state["treatment"])==0 and len(state["doctor_positions"])==0: state["healing_mode"]=False
@@ -123,6 +127,7 @@ def engine():
                     if not target_patient: break
                     oldest=target_patient; invoice=oldest[8]
                     sym,pct,price,vol,power,bull,source = strongest
+                    if sym == oldest[0]: continue # V98 FIX 2: منع نفس العملة
                     if sym not in exist and price>0.0000005:
                         status_text = f"{pct:.1f}% MOL3A"
                         state["doctor_positions"].append([sym, source, price*0.9995, price, 0.0, 0.0, status_text, time.time(), invoice, oldest[0], source, pct])
@@ -133,16 +138,15 @@ def engine():
                     if r.status_code==200:
                         np=float(r.json()["price"]); d[3]=np; pp=(d[3]-d[2])/d[2]*100; d[4]=round(config["per_trade"]*pp/100,3); d[5]=round(pp,2)
                         invoice=d[8];
-                        # FIX 60% - كان invoice+0.07 = 0.85$ - الآن 60% فقط = 0.21$
                         target=invoice*0.60
                         alive=time.time()-d[7]
-                        # FIX صبر 180 ثانية + تحمل 1.0$ - كان 80 ثانية و 0.3$
                         if d[4] <= -config["doctor_sl"] or (alive>180 and d[4] < 0.05):
                             state["doctor_positions"].remove(d); continue
                         if d[4] >= target:
                             for t in state["treatment"][:]:
                                 if t[0]==d[9]:
-                                    state["treatment"].remove(t); state["doctor"]["healed"]+=1; state["doctor"]["profit"]+=invoice; state["safi"]+=invoice; break
+                                    state["treatment"].remove(t); state["doctor"]["healed"]+=1; state["doctor"]["profit"]+=invoice; break
+                                    # V98 FIX 3: شلنا state["safi"]+=invoice - الصافي مقفل
                             state["doctor_positions"].remove(d)
                             if len(state["treatment"])==0: state["healing_mode"]=False
                 except: pass
@@ -151,16 +155,17 @@ def engine():
                     r=requests.get(f"https://api.binance.com/api/v3/ticker/price?symbol={p[0]}USDT", timeout=2)
                     if r.status_code==200:
                         np=float(r.json()["price"])
-                        # FIX شفاء اسهل 0.994 بدل 0.995
                         if np > p[2]*0.994:
-                            profit=(np-p[2])/p[2]*config["per_trade"]; state["doctor"]["healed"]+=1; state["doctor"]["profit"]+=profit; state["safi"]+=profit*0.5; state["treatment"].remove(p); continue
+                            profit=(np-p[2])/p[2]*config["per_trade"]; state["doctor"]["healed"]+=1; state["doctor"]["profit"]+=profit; state["treatment"].remove(p); continue
+                            # V98 FIX 4: شلنا state["safi"]+=profit*0.5
                         p[3]=np
                 except: pass
             state["ghair"]=round(sum(p[4] for p in state["positions"])+sum(d[4] for d in state["doctor_positions"]),3)
             state["loss_pool"]=round(sum(p[8] for p in state["treatment"]),3)
             if state["ghair"] >= config["target_dollar"] and len(state["positions"])>0 and not state["healing_mode"]:
-                profit=state["ghair"]; state["safi"]+=profit; state["fixed"]=config["capital"]+state["safi"]; state["trades_closed"]+=len(state["positions"]); state["positions"]=[]; state["ghair"]=0.0
-            # FIX وقف خسارة 0.35% بدل 0.5%
+                profit=state["ghair"];
+                if profit>0: state["safi"]+=profit
+                state["fixed"]=config["capital"]+state["safi"]; state["trades_closed"]+=len(state["positions"]); state["positions"]=[]; state["ghair"]=0.0
             to_hosp=[p for p in state["positions"] if p[5] <= -config["sl_pct"]]
             for p in to_hosp:
                 if p in state["positions"]:
@@ -171,7 +176,7 @@ def engine():
                 state["specialty"]=True; state["binance_status"]=f"زحمة {len(state['treatment'])}/30"
             else:
                 state["specialty"]=False
-                if not state["healing_mode"]: state["binance_status"]=f"شغال {len(state['positions'])}/8 - مستشفى {len(state['treatment'])}/30 - LUXURY"
+                if not state["healing_mode"]: state["binance_status"]=f"شغال {len(state['positions'])}/8 - مستشفى {len(state['treatment'])}/30 - V98 LOCKED"
                 if len(state["positions"]) < config["max_pos"] and not state["healing_mode"]:
                     hot=get_binance_hot(); exist=set([x[0] for x in state["positions"]+state["treatment"]+state["doctor_positions"]])
                     for sym,pct,price,vol,power,bull,src in hot:
@@ -193,13 +198,21 @@ def control(cmd):
         state["positions"]=[]; state["ghair"]=0.0
     elif cmd=="reset":
         state["fixed"]=config["capital"]; state["safi"]=0.0; state["ghair"]=0.0; state["loss_pool"]=0.0; state["trades_closed"]=0; state["positions"]=[]; state["treatment"]=[]; state["doctor_positions"]=[]; state["doctor"]={"healed":0,"profit":0.0,"start":time.time(),"rate":99.5,"active_patient":None,"active_doctor":None}; state["specialty"]=False; state["is_running"]=True; state["healing_mode"]=False
+    elif cmd=="safi_reset":
+        state["safi"]=0.0; state["fixed"]=config["capital"]; state["last"]="تم تصفير الصافي يدويا - V98"
     elif cmd=="try":
         hot=get_binance_hot()
         if hot: s=hot[0]; state["positions"].append([s[0],"SPOT",s[2]*0.999,s[2],0.0,0.0,f"{s[1]:.1f}% BINANCE",time.time()])
     elif cmd=="specialty": state["specialty"]=False; state["is_running"]=True; state["healing_mode"]=False
     elif cmd=="heal":
         for p in state["treatment"][:]: state["treatment"].remove(p)
-        state["healing_mode"]=False; state["doctor_positions"]=[]
+        state["healing_mode"]=False; state["doctor_positions"]=[]; state["last"]="FORCE HEAL بدون خصم صافي - V98"
+    elif cmd=="force_heal_astr":
+        for p in state["treatment"][:]:
+            if p[0]=="ASTR": state["treatment"].remove(p)
+        for d in state["doctor_positions"][:]:
+            if d[0]=="ASTR" and d[9]=="ASTR": state["doctor_positions"].remove(d)
+        state["last"]="تم فك ASTR المتكي - V98"
     elif cmd=="doctor":
         config["doctor_enabled"]=not config["doctor_enabled"]; config["doctor_auto"]=config["doctor_enabled"]
     return jsonify({"ok":True})
@@ -219,7 +232,7 @@ def set_config():
 @app.route('/api/data')
 def api_data():
     total=state["fixed"]+state["safi"]+state["ghair"]-state["loss_pool"]; elapsed=int(time.time()-state["doctor"]["start"])
-    return jsonify({"fixed":state["fixed"],"safi":state["safi"],"ghair":state["ghair"],"total":round(total,3),"trades_closed":state["trades_closed"],"loss_pool":state["loss_pool"],"positions":state["positions"],"treatment":state["treatment"],"doctor_positions":state["doctor_positions"],"binance_status":state["binance_status"],"data_source":f"V97.5 EASY {len(state['treatment'])}/{config['hospital_cap']}","is_running":state["is_running"],"doctor":state["doctor"],"elapsed":elapsed,"heal_rate":99.5,"specialty":state["specialty"],"last_healed":state["last"],"config":config,"healing_mode":state["healing_mode"]})
+    return jsonify({"fixed":state["fixed"],"safi":state["safi"],"ghair":state["ghair"],"total":round(total,3),"trades_closed":state["trades_closed"],"loss_pool":state["loss_pool"],"positions":state["positions"],"treatment":state["treatment"],"doctor_positions":state["doctor_positions"],"binance_status":state["binance_status"],"data_source":f"V98 LOCKED {len(state['treatment'])}/{config['hospital_cap']}","is_running":state["is_running"],"doctor":state["doctor"],"elapsed":elapsed,"heal_rate":99.5,"specialty":state["specialty"],"last_healed":state["last"],"config":config,"healing_mode":state["healing_mode"]})
 
 @app.route('/')
 def home():
@@ -257,8 +270,8 @@ body{margin:0;background:radial-gradient(ellipse at top,#0A1931 0%,#060A14 70%);
 .profit-neg{color:#FF3344!important;text-shadow:0 0 10px rgba(255,51,68,0.9),0 0 20px rgba(255,51,68,0.5);font-weight:900!important}
 .foot{padding:8px 12px;font-size:11px;background:#020617;color:#D4AF37;display:flex;justify-content:space-between;font-family:'JetBrains Mono';direction:ltr;flex-wrap:wrap;gap:4px}
 </style></head><body>
-<div class="top" id="top"><span id="elapsed" lang="en" dir="ltr">0s</span><span id="rate" lang="en" dir="ltr">V97.5 - 0/30</span><span id="profit" lang="en" dir="ltr">+0.00$</span><span id="healed" lang="en" dir="ltr">0</span><span id="spec">جاهز</span></div>
-<div class="panel"><h3>👑 V97.5 EASY HEAL - علاج سهل 60% + SL 0.35% + عناوين واضحة + نيون</h3>
+<div class="top" id="top"><span id="elapsed" lang="en" dir="ltr">0s</span><span id="rate" lang="en" dir="ltr">V98 - 0/30</span><span id="profit" lang="en" dir="ltr">+0.00$</span><span id="healed" lang="en" dir="ltr">0</span><span id="spec">جاهز</span></div>
+<div class="panel"><h3>👑 V98 SAFI LOCKED - الصافي مقفل 🔒 + ASTR ما يعالج نفسه</h3>
 <div class="grid">
 <div class="box"><label>💰 راس المال $</label><input id="cap" lang="en" dir="ltr" type="text" value="1000" onchange="save()"></div>
 <div class="box"><label>📦 حجم الصفقة $</label><input id="per" lang="en" dir="ltr" type="text" value="100" onchange="save()"></div>
@@ -268,23 +281,25 @@ body{margin:0;background:radial-gradient(ellipse at top,#0A1931 0%,#060A14 70%);
 <div class="btns">
 <button class="btn" style="background:#FB923C;color:#000" onclick="ctrl('try')">🧪 دخول</button>
 <button class="btn" style="background:#FDE047;color:#000" onclick="ctrl('reset')">🔄 تصفير</button>
+<button class="btn" style="background:#EF4444;color:#FFF" onclick="if(confirm('تصفر الصافي يدوي؟')) ctrl('safi_reset')">🔒 تصفير صافي يدوي</button>
+<button class="btn" style="background:#FF6B00;color:#FFF" onclick="ctrl('force_heal_astr')">🔥 فك ASTR المتكي</button>
 <button class="btn" style="background:#38BDF8;color:#000" onclick="ctrl('lock')">🔒 قفل</button>
 <button class="btn" style="background:#10B981;color:#000" id="btnRun" onclick="ctrl('toggle')">⏸️ ايقاف</button>
 <button class="btn" style="background:#60A5FA;color:#000" onclick="ctrl('specialty')">🏥 فك الزحمة</button>
-<button class="btn" style="background:#A78BFA;color:#000" onclick="ctrl('heal')">💊 شفاء</button>
+<button class="btn" style="background:#A78BFA;color:#000" onclick="ctrl('heal')">💊 شفاء بدون خصم</button>
 <button class="btn" style="background:#22D3EE;color:#000" id="btnDoc" onclick="ctrl('doctor')">🔥 مولعة ON</button>
 </div>
 <div class="cards">
 <div class="card"><div class="lab">💰 ثابت</div><div class="val w" lang="en" dir="ltr" id="f1">1000.00$</div></div>
 <div class="card"><div class="lab">📦 الصيدلية</div><div class="val b" lang="en" dir="ltr" id="f2">0.00$</div><div class="lab" lang="en" dir="ltr" id="f2c" style="font-size:10px">0 دواء</div></div>
-<div class="card safi"><div class="lab">💹 صافي محقق</div><div class="val g" lang="en" dir="ltr" id="f3">+0.000$</div></div>
+<div class="card safi"><div class="lab">💹 صافي محقق 🔒</div><div class="val g" lang="en" dir="ltr" id="f3">+0.000$</div></div>
 <div class="card gold"><div class="lab">💎 الاجمالي</div><div class="val y" lang="en" dir="ltr" id="f5">1000.000$</div></div>
 <div class="card"><div class="lab">📈 غير محققة</div><div class="val c" lang="en" dir="ltr" id="f6">+0.000$</div></div>
 </div>
 <div class="tbl"><div class="th" style="grid-template-columns:1.2fr 0.8fr 1.2fr 0.8fr 0.8fr 0.8fr 0.6fr"><div>العملة</div><div>النوع</div><div>الحالة</div><div>الدخول</div><div>الحالي</div><div>ربح $</div><div>%</div></div><div id="plist"></div></div>
 <div class="tbl" style="border-color:#22D3EE"><div class="th" style="grid-template-columns:1fr 1fr 0.6fr 0.6fr 0.6fr 0.8fr 0.6fr;background:#0E2A3A;color:#22D3EE"><div>🔥 طبيب TV</div><div>يعالج</div><div>الفاتورة</div><div>الهدف</div><div>الربح</div><div>الحالة</div><div>المصدر</div></div><div id="dlist"></div></div>
 <div class="tbl" style="border-color:#D4AF37"><div class="th" style="grid-template-columns:1fr 1.2fr 0.6fr 0.6fr 0.6fr 0.6fr;background:#2A1F0F;color:#D4AF37"><div>💊 المستشفى</div><div>يعالج</div><div>الخسارة</div><div>الهدف</div><div>الحالي</div><div>%</div></div><div id="tlist"></div></div>
-<div class="foot"><span lang="en" dir="ltr" id="src">V97.5 EASY</span><span lang="en" dir="ltr" id="bin">...</span><span lang="en" dir="ltr" id="time">...</span></div>
+<div class="foot"><span lang="en" dir="ltr" id="src">V98 LOCKED</span><span lang="en" dir="ltr" id="bin">...</span><span lang="en" dir="ltr" id="time">...</span></div>
 <script>
 function toEnglishDigits(str){ if(!str) return str; return str.toString().replace(/[٠-٩]/g, d => "٠١٢٣٤٥٦٧٨٩".indexOf(d)).replace(/[۰-۹]/g, d => "۰۱۲۳۴۵۶۷۸۹".indexOf(d)); }
 function en(n,d=2){ let num=Number(toEnglishDigits(n)); if(isNaN(num)) num=0; return num.toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d,useGrouping:false}); }
@@ -298,7 +313,7 @@ async function save(){
 }
 async function load(){ try{ const r=await fetch('/api/data'); const d=await r.json();
   document.getElementById('cap').value=en(d.config.capital,0); document.getElementById('per').value=en(d.config.per_trade,0); document.getElementById('targ').value=en(d.config.target_dollar,1); document.getElementById('hcap').value=en(d.config.hospital_cap,0);
-  document.getElementById('elapsed').innerText=en(d.elapsed,0)+'s'; document.getElementById('rate').innerText='V97.5 - '+en(d.treatment.length,0)+'/'+en(d.config.hospital_cap,0); document.getElementById('profit').innerText='+'+en(d.doctor.profit,2)+'$'; document.getElementById('healed').innerText=en(d.doctor.healed,0)+' شفى';
+  document.getElementById('elapsed').innerText=en(d.elapsed,0)+'s'; document.getElementById('rate').innerText='V98 - '+en(d.treatment.length,0)+'/'+en(d.config.hospital_cap,0); document.getElementById('profit').innerText='+'+en(d.doctor.profit,2)+'$'; document.getElementById('healed').innerText=en(d.doctor.healed,0)+' شفى';
   document.getElementById('f1').innerText=en(d.fixed,2)+'$'; document.getElementById('f2').innerText=en(d.loss_pool,2)+'$'; document.getElementById('f2c').innerText=en(d.treatment.length,0)+' دواء';
   let safiCls = Number(d.safi)>=0?'profit-pos':'profit-neg'; document.getElementById('f3').innerHTML='<span class="'+safiCls+'">+'+en(d.safi,3)+'$</span>';
   document.getElementById('f5').innerText=en(d.total,3)+'$';
