@@ -6,7 +6,7 @@ import threading, time, os, requests
 app = Flask(__name__)
 
 config={"capital":1000.0,"per_trade":100.0,"target_dollar":0.5,"sl_pct":0.35,"hospital_cap":30,"max_pos":8,"min_vol":2000000,"doctor_enabled":True,"doctor_auto":True,"doctor_threshold":2,"doctor_extra":0.04,"doctor_sl":1.0,"max_doctors":3}
-state={"fixed":1128.0,"safi":0.0,"ghair":128.00,"trades_closed":0,"loss_pool":0.0,"positions":[],"treatment":[],"doctor_positions":[],"binance_status":"V98.1 ENTRY FIX","data_source":"V98.1 FIX ENTRY","is_running":True,"doctor":{"healed":0,"profit":0.0,"start":time.time(),"rate":99.5,"active_patient":None,"active_doctor":None},"specialty":False,"last":"V98.1 Ready - Entry Fixed","healing_mode":False}
+state={"fixed":1128.0,"safi":128.0,"ghair":0.0,"trades_closed":0,"loss_pool":0.0,"positions":[],"treatment":[],"doctor_positions":[],"binance_status":"V98.1 ENTRY FIX","data_source":"V98.1 FIX ENTRY","is_running":True,"doctor":{"healed":0,"profit":0.0,"start":time.time(),"rate":99.5,"active_patient":None,"active_doctor":None},"specialty":False,"last":"V98.1 Ready - Entry Fixed","healing_mode":False}
 
 def ema(data, period):
     if len(data)<period: return None
