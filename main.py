@@ -12,7 +12,7 @@ config={"capital":1000.0,"per_trade":100.0,"target_dollar":0.5,"sl_pct":0.35,"ho
 BANNED = {"ASTR","ASTAR","SAGA","FF"}
 
 # ثبت صافيك الجديد 187.07$ من الصورة - غيره لو تبي
-state={"fixed":1187.07,"safi":187.07,"ghair":0.0,"trades_closed":0,"loss_pool":0.0,"positions":[],"treatment":[],"doctor_positions":[],"binance_status":"V98.5 BAN","data_source":"V98.5 BAN CLEAN","is_running":True,"doctor":{"healed":0,"profit":0.0,"start":time.time(),"rate":99.5,"active_patient":None,"active_doctor":None},"specialty":False,"last":"V98.5 حظر SAGA/FF/ASTR","healing_mode":False}
+state={"fixed":1198.0,"safi":198.0,"ghair":0.0,"trades_closed":0,"loss_pool":0.0,"positions":[],"treatment":[],"doctor_positions":[],"binance_status":"V98.5 BAN","data_source":"V98.5 BAN CLEAN","is_running":True,"doctor":{"healed":0,"profit":0.0,"start":time.time(),"rate":99.5,"active_patient":None,"active_doctor":None},"specialty":False,"last":"V98.5 حظر SAGA/FF/ASTR","healing_mode":False}
 
 def ema(data, period):
     if len(data)<period: return None
