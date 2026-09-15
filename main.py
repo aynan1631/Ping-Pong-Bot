@@ -5,7 +5,7 @@ from flask import Flask, jsonify, request
 import threading, time, os, requests
 app = Flask(__name__)
 
-config={"capital":1000.0,"per_trade":100.0,"target_dollar":0.5,"sl_pct":0.5,"hospital_cap":15,"max_pos":8,"min_vol":2000000}
+config={"capital":1000.0,"per_trade":50.0,"target_dollar":0.5,"sl_pct":0.5,"hospital_cap":10,"max_pos":20,"min_vol":2000000}
 state={"fixed":1000.0,"safi":0.0,"ghair":0.0,"trades_closed":0,"loss_pool":0.0,"positions":[],"treatment":[],"binance_status":"✅ هدف 0.5$ FIX","data_source":"MACD 0.5$ قفل","is_running":True,"doctor":{"healed":0,"profit":0.0,"start":time.time(),"rate":95.4},"specialty":False,"last":"جاهز 0.5$"}
 
 def ema(data, period):
