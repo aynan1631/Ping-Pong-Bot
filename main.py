@@ -8,7 +8,7 @@ app = Flask(__name__)
 
 config={"capital":1000.0,"per_trade":200.0,"base_per_trade":200.0,"target_dollar":0.5,"sl_pct":0.35,"hospital_cap":30,"max_pos":8,"min_vol":2000000,"doctor_enabled":True,"doctor_auto":True,"doctor_threshold":2,"doctor_extra":0.04,"doctor_sl":1.0,"max_doctors":3,"auto_compound":True,"compound_step":50.0,"compound_add":25.0,"protect_pct":0.05}
 BANNED = {"ASTR","ASTAR","SAGA","FF"}
-state={"fixed":1219.27,"safi":219.265,"max_safi":219.265,"ghair":0.0,"trades_closed":0,"loss_pool":0.0,"positions":[],"treatment":[],"doctor_positions":[],"binance_status":"V100 LEGEND","data_source":"V100 LEGEND","is_running":True,"doctor":{"healed":0,"profit":0.0,"start":time.time(),"rate":99.5,"active_patient":None,"active_doctor":None},"specialty":False,"last":"V100 LEGEND","healing_mode":False,"protect_triggered":False}
+state={"fixed":1260.0,"safi":260.0,"max_safi":219.265,"ghair":0.0,"trades_closed":0,"loss_pool":0.0,"positions":[],"treatment":[],"doctor_positions":[],"binance_status":"V100 LEGEND","data_source":"V100 LEGEND","is_running":True,"doctor":{"healed":0,"profit":0.0,"start":time.time(),"rate":99.5,"active_patient":None,"active_doctor":None},"specialty":False,"last":"V100 LEGEND","healing_mode":False,"protect_triggered":False}
 
 def get_dynamic_per_trade():
     if not config["auto_compound"]: return config["per_trade"]
