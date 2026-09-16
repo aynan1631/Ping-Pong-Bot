@@ -6,11 +6,23 @@ from flask import Flask, jsonify, request
 import threading, time, os, requests, math
 app = Flask(__name__)
 
+# === كشف IP حق Railway عشان Binance ===
+import urllib.request
+try:
+    ip = urllib.request.urlopen('https://api.ipify.org', timeout=5).read().decode()
+    print(f"RAILWAY_IP_IS: {ip}")
+except Exception as e:
+    print(f"IP FETCH FAIL: {e}")
+
 try:
     from binance.client import Client
     from binance.exceptions import BinanceAPIException
-    REAL_CLIENT = Client(os.getenv("BINANCE_API_KEY"), os.getenv("BINANCE_API_SECRET")) if os.getenv("BINANCE_API_KEY") else None
-    TEST_CLIENT = Client(os.getenv("TESTNET_API_KEY"), os.getenv("TESTNET_SECRET"), testnet=True) if os.getenv("TESTNET_API_KEY") else None
+    api_key = os.getenv("BINANCE_API_KEY")
+    api_secret = os.getenv("BINANCE_API_SECRET")
+    test_key = os.getenv("TESTNET_API_KEY")
+    test_secret = os.getenv("TESTNET_SECRET")
+    REAL_CLIENT = Client(api_key, api_secret) if api_key and api_secret else None
+    TEST_CLIENT = Client(test_key, test_secret, testnet=True) if test_key and test_secret else None
     print(f"KEYS CHECK - REAL:{bool(REAL_CLIENT)} TEST:{bool(TEST_CLIENT)}")
 except Exception as e:
     print(f"CLIENT INIT ERROR: {e}")
