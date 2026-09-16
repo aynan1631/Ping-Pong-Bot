@@ -1,5 +1,6 @@
 """
-V100 LEGEND DUAL - نسخة مستقرة قبل الكراش + حماية الرصيد الحقيقي
+V100 LEGEND DUAL - نسخة نهائية - الحقل يطلع رصيد Binance الحقيقي
+تجريبي 10000$ - حقيقي يطلع 0 لو صفر و 20 لو 20
 """
 from flask import Flask, jsonify, request
 import threading, time, os, requests
@@ -129,7 +130,6 @@ def engine():
     while True:
         try:
             if not state["is_running"]: time.sleep(1); continue
-            # === هنا التعديل الوحيد - حماية الرصيد الحقيقي ===
             if state["mode"]=="REAL":
                 try:
                     rb = float(state["real_balance"]) if state["real_balance"]!="--" else 0
@@ -233,7 +233,7 @@ def health(): return "OK",200
 def control(cmd):
     if cmd=="toggle":
         if state["no_balance_alert"] and state["mode"]=="REAL":
-            return jsonify({"ok":False, "error": "no_balance"})
+            return jsonify({"ok":False, "error": "no_balance", "balance": state["real_balance"], "capital": config["capital"]})
         state["is_running"]=not state["is_running"]
         if state["is_running"]: state["protect_triggered"]=False
     elif cmd=="lock":
@@ -253,29 +253,52 @@ def control(cmd):
     elif cmd=="protect_reset": state["protect_triggered"]=False; state["no_balance_alert"]=False; state["max_safi"]=state["safi"]; state["is_running"]=True
     elif cmd=="mode_test":
         state["mode"]="TESTNET"; state["no_balance_alert"]=False; state["protect_triggered"]=False; state["is_running"]=True
+        config["capital"]=10000.0
+        state["fixed"]=10000.0+state["safi"]
+        state["test_balance"]="10000.00"
         try:
             if TEST_CLIENT:
                 b=TEST_CLIENT.get_asset_balance(asset='USDT')
                 bal=float(b['free'])
-                if bal>0: config["capital"]=bal; state["fixed"]=bal+state["safi"]; state["test_balance"]=f"{bal:.2f}"
-            else: config["capital"]=10000.0; state["fixed"]=10000.0+state["safi"]
-        except: config["capital"]=10000.0; state["fixed"]=10000.0+state["safi"]
-        if state["test_balance"]=="--": state["test_balance"]="10000.00"
+                if bal>0:
+                    config["capital"]=bal
+                    state["fixed"]=bal+state["safi"]
+                    state["test_balance"]=f"{bal:.2f}"
+        except: pass
         state["binance_status"]=f"V100 TESTNET {config['capital']:.2f}$"
+        return jsonify({"ok":True, "capital": config["capital"], "mode": "TESTNET", "real_balance": state["real_balance"], "test_balance": state["test_balance"]})
     elif cmd=="mode_real":
         state["mode"]="REAL"; state["protect_triggered"]=False
+        real_bal = 0.0
         try:
             if REAL_CLIENT:
                 b=REAL_CLIENT.get_asset_balance(asset='USDT')
                 bal=float(b['free'])
+                real_bal=bal
                 state["real_balance"]=f"{bal:.2f}"
+                config["capital"]=bal
+                state["fixed"]=bal+state["safi"]
                 if bal < 0.5:
                     state["no_balance_alert"]=True; state["is_running"]=False
-                    state["binance_status"]=f"⛔ لا يوجد رصيد حقيقي {bal}$ - اشحن"
-                    return jsonify({"ok":False, "error": "no_balance", "balance": bal})
-                config["capital"]=bal; state["fixed"]=bal+state["safi"]; state["no_balance_alert"]=False; state["is_running"]=True
-        except: pass
+                    state["binance_status"]=f"⛔ لا يوجد رصيد حقيقي {bal}$"
+                    return jsonify({"ok":True, "capital": bal, "mode": "REAL", "real_balance": state["real_balance"], "error": "no_balance", "balance": bal})
+                else:
+                    state["no_balance_alert"]=False; state["is_running"]=True
+            else:
+                # ما فيه API - نعتبر الرصيد صفر ويطلع صفر بالحقل
+                state["real_balance"]="0.00"
+                config["capital"]=0.0
+                state["fixed"]=0.0+state["safi"]
+                state["no_balance_alert"]=True
+                state["is_running"]=False
+                state["binance_status"]=f"⛔ لا يوجد رصيد حقيقي - اضف API"
+                return jsonify({"ok":True, "capital": 0, "mode": "REAL", "real_balance": "0.00", "error": "no_balance", "balance": 0})
+        except Exception as e:
+            state["real_balance"]="0.00"
+            config["capital"]=real_bal
+            state["fixed"]=real_bal+state["safi"]
         state["binance_status"]=f"V100 REAL {config['capital']:.2f}$"
+        return jsonify({"ok":True, "capital": config["capital"], "mode": "REAL", "real_balance": state["real_balance"]})
     return jsonify({"ok":True, "capital": config["capital"], "mode": state["mode"], "real_balance": state["real_balance"]})
 
 @app.route('/api/config', methods=['POST'])
@@ -305,7 +328,7 @@ def home():
 <button id="btnTest" class="mode-btn" onclick="switchMode('mode_test')" style="background:#0A1F3A;color:#22D3EE;border-color:#22D3EE">🧪 تجريبي TESTNET<br><span id="testBal" style="font-size:11px">10000.00</span></button>
 <button id="btnReal" class="mode-btn" onclick="switchMode('mode_real')" style="background:#1A1000;color:#D4AF37;border-color:#D4AF37">👑 حقيقي LEGEND<br><span id="realBal" style="font-size:11px">--</span></button>
 </div>
-<div class="panel"><h3 id="mainTitle">👑 V100 DUAL - مع حماية الرصيد 👑</h3><div class="grid">
+<div class="panel"><h3 id="mainTitle">👑 V100 DUAL - رصيد أوتوماتيك 👑</h3><div class="grid">
 <div class="box" style="border:2px solid #D4AF37"><label id="capLabel">💰 راس المال $</label><div class="step-row"><button class="step-btn" onclick="stepCap(-100)">-</button><input id="cap" type="number" value="10000" onchange="save()"><button class="step-btn" onclick="stepCap(100)">+</button></div><div id="capInfo" style="font-size:9px;color:#D4AF37;margin-top:3px;font-weight:800">🧪 تجريبي 10000$</div></div>
 <div class="box"><label>📦 حجم اساسي $</label><div class="step-row"><button class="step-btn" onclick="step('per',-1)">-</button><input id="per" type="number" value="3" onchange="save()"><button class="step-btn" onclick="step('per',1)">+</button></div><div id="dynVal" style="font-size:10px;color:#00FF88;font-family:'JetBrains Mono';margin-top:3px;font-weight:900">ديناميكي 3$</div></div>
 <div class="box"><label>🎯 هدف القفل $</label><div class="step-row"><button class="step-btn" onclick="stepFloat('targ',-0.01)">-</button><input id="targ" type="number" step="0.01" value="0.05" onchange="save()"><button class="step-btn" onclick="stepFloat('targ',0.01)">+</button></div><div id="targVal" style="font-size:11px;color:#FFD700;font-family:'JetBrains Mono';margin-top:4px;font-weight:900">0.05$</div></div>
@@ -319,14 +342,13 @@ function stepCap(delta){ let el=document.getElementById('cap'); let v=parseFloat
 async function switchMode(cmd){
   const res = await fetch('/api/control/'+cmd);
   const j = await res.json();
+  document.getElementById('cap').value = Math.round(j.capital);
   if(j.error=='no_balance'){
     document.getElementById('noBalanceAlert').classList.add('show');
-    document.getElementById('noBalanceAlert').innerHTML='⛔ تنبيه: لا يتوفر رصيد حقيقي كافي في منصة Binance<br>رصيدك الحالي: '+en(j.balance||0,2)+'$ - الرجاء الشحن<br>التجريبي يعمل بشكل طبيعي 🧪';
-    setTimeout(()=>{ document.getElementById('noBalanceAlert').classList.remove('show'); }, 8000);
-    return;
+    document.getElementById('noBalanceAlert').innerHTML='⛔ تنبيه: لا يتوفر رصيد حقيقي كافي في Binance<br>رصيدك الحالي: '+en(j.balance||0,2)+'$ - الرجاء الشحن<br>الحقل يعرض رصيدك الحقيقي 0$';
+  } else {
+    document.getElementById('noBalanceAlert').classList.remove('show');
   }
-  document.getElementById('noBalanceAlert').classList.remove('show');
-  document.getElementById('cap').value = Math.round(j.capital);
   load();
 }
 async function ctrl(c){
@@ -334,23 +356,24 @@ async function ctrl(c){
   const j = await res.json();
   if(j.error=='no_balance'){
     document.getElementById('noBalanceAlert').classList.add('show');
-    document.getElementById('noBalanceAlert').innerHTML='⛔ لا يمكن التشغيل - لا يوجد رصيد حقيقي كافي<br>رصيدك: '+(j.balance||0)+'$<br>اشحن Binance أولاً';
+    document.getElementById('cap').value = Math.round(j.capital||0);
+    document.getElementById('noBalanceAlert').innerHTML='⛔ لا يمكن التشغيل - رصيدك '+(j.balance||0)+'$<br>اشحن Binance أولاً - الحقل يظهر 0$';
     return;
   }
   load();
 }
-async function save(){ let cap=document.getElementById('cap').value, per=document.getElementById('per').value, targ=document.getElementById('targ').value, hcap=document.getElementById('hcap').value; const res=await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({capital:parseFloat(cap)||10000,per_trade:parseFloat(per)||3,target:parseFloat(targ)||0.05,target_dollar:parseFloat(targ)||0.05,hcap:parseInt(hcap)||3})}); const j=await res.json(); if(j.error=='no_balance'){ document.getElementById('noBalanceAlert').classList.add('show'); return; } document.getElementById('targVal').innerText=en(j.config.target_dollar,2)+'$'; }
+async function save(){ let cap=document.getElementById('cap').value, per=document.getElementById('per').value, targ=document.getElementById('targ').value, hcap=document.getElementById('hcap').value; const res=await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({capital:parseFloat(cap)||10000,per_trade:parseFloat(per)||3,target:parseFloat(targ)||0.05,target_dollar:parseFloat(targ)||0.05,hcap:parseInt(hcap)||3})}); const j=await res.json(); document.getElementById('targVal').innerText=en(j.config.target_dollar,2)+'$'; }
 async function load(){ try{ const r=await fetch('/api/data'); const d=await r.json();
 if(d.no_balance_alert){
   document.getElementById('noBalanceAlert').classList.add('show');
-  document.getElementById('noBalanceAlert').innerHTML='⛔ تنبيه: لا يتوفر رصيد حقيقي كافي في منصة Binance<br>رصيدك الحالي: '+d.real_balance+'$ - حجم الصفقة: '+en(d.config.per_trade,0)+'$<br>الرجاء الشحن - التجريبي شغال 🧪';
+  document.getElementById('noBalanceAlert').innerHTML='⛔ لا يتوفر رصيد حقيقي كافي<br>رصيدك: '+d.real_balance+'$ - الحقل يظهر '+en(d.config.capital,0)+'$<br>اشحن - التجريبي شغال 🧪';
 } else {
-  if(d.protect_triggered && d.no_balance_alert){} else if(!d.no_balance_alert){ document.getElementById('noBalanceAlert').classList.remove('show'); }
+  if(!d.no_balance_alert) document.getElementById('noBalanceAlert').classList.remove('show');
 }
 document.getElementById('per').value=en(d.config.base_per_trade||d.config.per_trade,0); document.getElementById('targ').value=en(d.config.target_dollar,2); document.getElementById('hcap').value=en(d.config.hospital_cap,0);
 if(document.activeElement.id!=='cap'){ document.getElementById('cap').value=en(d.config.capital,0); }
-if(d.mode=='REAL'){ document.getElementById('capLabel').innerText='💰 راس المال $ 👑 حقيقي'; document.getElementById('capInfo').innerText='👑 '+d.real_balance+'$ من BINANCE'; } else { document.getElementById('capLabel').innerText='💰 راس المال $ 🧪 تجريبي'; document.getElementById('capInfo').innerText='🧪 '+d.test_balance+'$ من TESTNET'; }
-document.getElementById('elapsed').innerText=en(d.elapsed,0)+'s'; document.getElementById('rate').innerText='V100 - '+en(d.treatment.length,0)+'/'+en(d.config.hospital_cap,0); document.getElementById('profit').innerText='+'+en(d.doctor.profit,2)+'$'; document.getElementById('healed').innerText=en(d.doctor.healed,0)+' شفى'; document.getElementById('f1').innerText=en(d.fixed,2)+'$'; document.getElementById('f2').innerText=en(d.loss_pool,2)+'$'; document.getElementById('f2c').innerText=en(d.treatment.length,0)+' دواء'; let safiCls = Number(d.safi)>=0?'profit-pos':'profit-neg'; document.getElementById('f3').innerHTML='<span class="'+safiCls+'">+'+en(d.safi,3)+'$</span>'; document.getElementById('maxSafi').innerText='اعلى '+en(d.max_safi||d.safi,0)+'$ - حجم '+en(d.dynamic_per_trade||3,0)+'$'; document.getElementById('dynVal').innerText='ديناميكي '+en(d.dynamic_per_trade||3,0)+'$'; document.getElementById('f5').innerText=en(d.total,3)+'$'; let ghairCls = Number(d.ghair)>=0?'profit-pos':'profit-neg'; document.getElementById('f6').innerHTML='<span class="'+ghairCls+'">'+en(d.ghair,3)+'$ / '+en(d.config.target_dollar,2)+'$</span>'; document.getElementById('btnRun').innerText=d.is_running?'⏸️ ايقاف':'▶️ تشغيل'; if(d.protect_triggered){ document.getElementById('btnRun').innerText=d.no_balance_alert?'⛔ لا يوجد رصيد':'🔒 حماية'; document.getElementById('btnRun').style.background='#FF3344'; } else { document.getElementById('btnRun').style.background='#10B981'; } document.getElementById('btnDoc').innerText=d.config.doctor_enabled?'🔥 مولعة ON':'🔥 OFF'; document.getElementById('src').innerText=d.data_source; document.getElementById('bin').innerText=d.binance_status; document.getElementById('time').innerText=new Date().toLocaleTimeString('en-GB',{hour12:false}); document.getElementById('testBal').innerText=d.test_balance+' USDT'; document.getElementById('realBal').innerText=d.real_balance+' USDT'; if(d.mode=='TESTNET'){ document.getElementById('btnTest').style.background='#22D3EE'; document.getElementById('btnTest').style.color='#000'; document.getElementById('btnReal').style.background='#1A1000'; document.getElementById('btnReal').style.color='#D4AF37'; document.getElementById('mainTitle').innerText='🧪 V100-TESTNET '+d.test_balance+'$'; document.getElementById('mainTitle').style.color='#22D3EE'; } else { document.getElementById('btnReal').style.background='#D4AF37'; document.getElementById('btnReal').style.color='#000'; document.getElementById('btnTest').style.background='#0A1F3A'; document.getElementById('btnTest').style.color='#22D3EE'; document.getElementById('mainTitle').innerText='👑 V100-LEGEND '+d.real_balance+'$ حقيقي'; document.getElementById('mainTitle').style.color='#D4AF37'; } let h=''; for(const p of d.positions){ let cls=colorClass(p[5]); let cls2=colorClass(p[4]); h+=`<div class="rw" style="grid-template-columns:1.2fr 0.8fr 1.2fr 0.8fr 0.8fr 0.8fr 0.6fr"><div style="color:#FFF;font-weight:900">${p[0]}</div><div><span class="badge" style="background:${d.mode=='TESTNET'?'#22D3EE':'#38BDF8'};color:#000">${d.mode=='TESTNET'?'TEST':'BIN'}</span></div><div class="${cls}" style="font-size:12px">${p[6]}</div><div style="color:#FFD700">${en(p[2],4)}</div><div style="color:#FFF">${en(p[3],4)}</div><div class="${cls2}">${en(p[4],3)}$</div><div class="${cls}">${en(p[5],2)}%</div></div>` } document.getElementById('plist').innerHTML=h||'<div style="padding:10px;text-align:center;color:#D4AF3760">⏳ BINANCE يطحن...</div>'; let dl=''; for(const p of d.doctor_positions){ let cls=colorClass(p[5]); let invoice=en(p[8],2); let target=en(p[8]*0.60,2); let profitCls=colorClass(p[4]); dl+=`<div class="rw" style="grid-template-columns:1fr 1fr 0.6fr 0.6fr 0.6fr 0.8fr 0.6fr;background:#0E1E2E"><div><span class="badge" style="background:#D4AF37;color:#000">${p[0]}</span></div><div style="color:#FACC15;font-weight:800">${p[9]}</div><div style="color:#FB923C">${invoice}$</div><div style="color:#00FF88">${target}$</div><div class="${profitCls}">${en(p[4],3)}$</div><div class="${cls}" style="font-size:11px">${p[6]}</div><div><span class="badge" style="background:${(p[10]||'TV').includes('TRADINGVIEW')?'#22D3EE':'#D4AF37'};color:#000;font-size:8px">${(p[10]||'TV').substring(0,3)}</span></div></div>` } document.getElementById('dlist').innerHTML=dl||'<div style="padding:10px;text-align:center;background:#0E1E2E;color:#D4AF37">👑 0/30 فخامة ✅</div>'; let t=''; for(const p of d.treatment){ let loss='-'+en(p[8],2)+'$'; let tgt=en(p[9],4); t+=`<div class="rw" style="grid-template-columns:1fr 1.2fr 0.6fr 0.6fr 0.6fr 0.6fr;background:#1A1500"><div><span class="badge" style="background:#FB923C;color:#000">${p[0]}</span></div><div style="color:#D4AF37;font-size:11px">${p[7]}</div><div class="profit-neg">${loss}</div><div style="color:#FFD700">${tgt}</div><div>${en(p[3],4)}</div><div class="profit-neg">5%</div></div>` } document.getElementById('tlist').innerHTML=t||'<div style="padding:10px;text-align:center;background:#1A1500;color:#10B981">👑 0/30 فاضي ✅</div>'; }catch(e){} } setInterval(load,1000); load();</script></body></html>"""
+if(d.mode=='REAL'){ document.getElementById('capLabel').innerText='💰 راس المال $ 👑 حقيقي'; document.getElementById('capInfo').innerText='👑 '+d.real_balance+'$ من BINANCE - الحقل = '+en(d.config.capital,0)+'$'; } else { document.getElementById('capLabel').innerText='💰 راس المال $ 🧪 تجريبي'; document.getElementById('capInfo').innerText='🧪 '+d.test_balance+'$ من TESTNET - الحقل = '+en(d.config.capital,0)+'$'; }
+document.getElementById('elapsed').innerText=en(d.elapsed,0)+'s'; document.getElementById('rate').innerText='V100 - '+en(d.treatment.length,0)+'/'+en(d.config.hospital_cap,0); document.getElementById('profit').innerText='+'+en(d.doctor.profit,2)+'$'; document.getElementById('healed').innerText=en(d.doctor.healed,0)+' شفى'; document.getElementById('f1').innerText=en(d.fixed,2)+'$'; document.getElementById('f2').innerText=en(d.loss_pool,2)+'$'; document.getElementById('f2c').innerText=en(d.treatment.length,0)+' دواء'; let safiCls = Number(d.safi)>=0?'profit-pos':'profit-neg'; document.getElementById('f3').innerHTML='<span class="'+safiCls+'">+'+en(d.safi,3)+'$</span>'; document.getElementById('maxSafi').innerText='اعلى '+en(d.max_safi||d.safi,0)+'$ - حجم '+en(d.dynamic_per_trade||3,0)+'$'; document.getElementById('dynVal').innerText='ديناميكي '+en(d.dynamic_per_trade||3,0)+'$'; document.getElementById('f5').innerText=en(d.total,3)+'$'; let ghairCls = Number(d.ghair)>=0?'profit-pos':'profit-neg'; document.getElementById('f6').innerHTML='<span class="'+ghairCls+'">'+en(d.ghair,3)+'$ / '+en(d.config.target_dollar,2)+'$</span>'; document.getElementById('btnRun').innerText=d.is_running?'⏸️ ايقاف':'▶️ تشغيل'; if(d.protect_triggered){ document.getElementById('btnRun').innerText=d.no_balance_alert?'⛔ لا يوجد رصيد':'🔒 حماية'; document.getElementById('btnRun').style.background='#FF3344'; } else { document.getElementById('btnRun').style.background='#10B981'; } document.getElementById('btnDoc').innerText=d.config.doctor_enabled?'🔥 مولعة ON':'🔥 OFF'; document.getElementById('src').innerText=d.data_source; document.getElementById('bin').innerText=d.binance_status; document.getElementById('time').innerText=new Date().toLocaleTimeString('en-GB',{hour12:false}); document.getElementById('testBal').innerText=d.test_balance+' USDT'; document.getElementById('realBal').innerText=d.real_balance+' USDT'; if(d.mode=='TESTNET'){ document.getElementById('btnTest').style.background='#22D3EE'; document.getElementById('btnTest').style.color='#000'; document.getElementById('btnReal').style.background='#1A1000'; document.getElementById('btnReal').style.color='#D4AF37'; document.getElementById('mainTitle').innerText='🧪 V100-TESTNET '+d.test_balance+'$'; document.getElementById('mainTitle').style.color='#22D3EE'; } else { document.getElementById('btnReal').style.background='#D4AF37'; document.getElementById('btnReal').style.color='#000'; document.getElementById('btnTest').style.background='#0A1F3A'; document.getElementById('btnTest').style.color='#22D3EE'; document.getElementById('mainTitle').innerText='👑 V100-LEGEND '+d.real_balance+'$ حقيقي - الحقل '+en(d.config.capital,0)+'$'; document.getElementById('mainTitle').style.color='#D4AF37'; } let h=''; for(const p of d.positions){ let cls=colorClass(p[5]); let cls2=colorClass(p[4]); h+=`<div class="rw" style="grid-template-columns:1.2fr 0.8fr 1.2fr 0.8fr 0.8fr 0.8fr 0.6fr"><div style="color:#FFF;font-weight:900">${p[0]}</div><div><span class="badge" style="background:${d.mode=='TESTNET'?'#22D3EE':'#38BDF8'};color:#000">${d.mode=='TESTNET'?'TEST':'BIN'}</span></div><div class="${cls}" style="font-size:12px">${p[6]}</div><div style="color:#FFD700">${en(p[2],4)}</div><div style="color:#FFF">${en(p[3],4)}</div><div class="${cls2}">${en(p[4],3)}$</div><div class="${cls}">${en(p[5],2)}%</div></div>` } document.getElementById('plist').innerHTML=h||'<div style="padding:10px;text-align:center;color:#D4AF3760">⏳ BINANCE يطحن...</div>'; let dl=''; for(const p of d.doctor_positions){ let cls=colorClass(p[5]); let invoice=en(p[8],2); let target=en(p[8]*0.60,2); let profitCls=colorClass(p[4]); dl+=`<div class="rw" style="grid-template-columns:1fr 1fr 0.6fr 0.6fr 0.6fr 0.8fr 0.6fr;background:#0E1E2E"><div><span class="badge" style="background:#D4AF37;color:#000">${p[0]}</span></div><div style="color:#FACC15;font-weight:800">${p[9]}</div><div style="color:#FB923C">${invoice}$</div><div style="color:#00FF88">${target}$</div><div class="${profitCls}">${en(p[4],3)}$</div><div class="${cls}" style="font-size:11px">${p[6]}</div><div><span class="badge" style="background:${(p[10]||'TV').includes('TRADINGVIEW')?'#22D3EE':'#D4AF37'};color:#000;font-size:8px">${(p[10]||'TV').substring(0,3)}</span></div></div>` } document.getElementById('dlist').innerHTML=dl||'<div style="padding:10px;text-align:center;background:#0E1E2E;color:#D4AF37">👑 0/30 فخامة ✅</div>'; let t=''; for(const p of d.treatment){ let loss='-'+en(p[8],2)+'$'; let tgt=en(p[9],4); t+=`<div class="rw" style="grid-template-columns:1fr 1.2fr 0.6fr 0.6fr 0.6fr 0.6fr;background:#1A1500"><div><span class="badge" style="background:#FB923C;color:#000">${p[0]}</span></div><div style="color:#D4AF37;font-size:11px">${p[7]}</div><div class="profit-neg">${loss}</div><div style="color:#FFD700">${tgt}</div><div>${en(p[3],4)}</div><div class="profit-neg">5%</div></div>` } document.getElementById('tlist').innerHTML=t||'<div style="padding:10px;text-align:center;background:#1A1500;color:#10B981">👑 0/30 فاضي ✅</div>'; }catch(e){} } setInterval(load,1000); load();</script></body></html>"""
 
 if __name__=="__main__":
     app.run(host="0.0.0.0",port=int(os.environ.get("PORT",8080)))
