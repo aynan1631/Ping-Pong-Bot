@@ -1,7 +1,5 @@
 """
-V100 LEGEND DUAL - النسخة النهائية الكاملة
-- تجريبي 10000$ - حقيقي يطلع رصيد Binance الحقيقي 0 أو 20
-- أرقام إنجليزية كبيرة + تحكم حتى والبوت شغال
+V100 LEGEND DUAL - نسخة نهائية - تصفير الحقول عند التحويل للحقيقي
 """
 from flask import Flask, jsonify, request
 import threading, time, os, requests
@@ -229,6 +227,21 @@ threading.Thread(target=engine,daemon=True).start()
 @app.route('/health')
 def health(): return "OK",200
 
+def reset_trading_state(new_capital):
+    # تصفير كامل للحقول اللي تحت
+    state["positions"]=[]
+    state["treatment"]=[]
+    state["doctor_positions"]=[]
+    state["safi"]=0.0
+    state["max_safi"]=0.0
+    state["ghair"]=0.0
+    state["loss_pool"]=0.0
+    state["trades_closed"]=0
+    state["fixed"]=new_capital
+    state["doctor"]={"healed":0,"profit":0.0,"start":time.time(),"rate":99.5}
+    state["healing_mode"]=False
+    state["protect_triggered"]=False
+
 @app.route('/api/control/<cmd>')
 def control(cmd):
     if cmd=="toggle":
@@ -240,8 +253,11 @@ def control(cmd):
         prof=sum(p[4] for p in state["positions"] if p[4]>0)
         if prof>0: state["safi"]+=prof; state["fixed"]=config["capital"]+state["safi"]; state["trades_closed"]+=len(state["positions"])
         state["positions"]=[]; state["ghair"]=0.0
-    elif cmd=="reset": state["fixed"]=config["capital"]; state["safi"]=0.0; state["max_safi"]=0.0; state["ghair"]=0.0; state["loss_pool"]=0.0; state["trades_closed"]=0; state["positions"]=[]; state["treatment"]=[]; state["doctor_positions"]=[]; state["doctor"]={"healed":0,"profit":0.0,"start":time.time(),"rate":99.5}; state["specialty"]=False; state["is_running"]=True; state["healing_mode"]=False; state["protect_triggered"]=False; state["no_balance_alert"]=False
-    elif cmd=="safi_reset": state["safi"]=0.0; state["fixed"]=config["capital"]; state["max_safi"]=0.0
+    elif cmd=="reset":
+        reset_trading_state(config["capital"])
+        state["is_running"]=True; state["no_balance_alert"]=False
+    elif cmd=="safi_reset":
+        state["safi"]=0.0; state["fixed"]=config["capital"]; state["max_safi"]=0.0; state["ghair"]=0.0; state["loss_pool"]=0.0
     elif cmd=="ban_clean":
         for p in state["treatment"][:]:
             if p[0] in BANNED: state["treatment"].remove(p)
@@ -254,7 +270,7 @@ def control(cmd):
     elif cmd=="mode_test":
         state["mode"]="TESTNET"; state["no_balance_alert"]=False; state["protect_triggered"]=False; state["is_running"]=True
         config["capital"]=10000.0
-        state["fixed"]=10000.0+state["safi"]
+        reset_trading_state(10000.0)
         state["test_balance"]="10000.00"
         try:
             if TEST_CLIENT:
@@ -262,7 +278,7 @@ def control(cmd):
                 bal=float(b['free'])
                 if bal>0:
                     config["capital"]=bal
-                    state["fixed"]=bal+state["safi"]
+                    reset_trading_state(bal)
                     state["test_balance"]=f"{bal:.2f}"
         except: pass
         state["binance_status"]=f"V100 TESTNET {config['capital']:.2f}$"
@@ -277,7 +293,7 @@ def control(cmd):
                 real_bal=bal
                 state["real_balance"]=f"{bal:.2f}"
                 config["capital"]=bal
-                state["fixed"]=bal+state["safi"]
+                reset_trading_state(bal) # يصفر الحقول اللي تحت
                 if bal < 0.5:
                     state["no_balance_alert"]=True; state["is_running"]=False
                     state["binance_status"]=f"⛔ لا يوجد رصيد حقيقي {bal}$"
@@ -287,15 +303,15 @@ def control(cmd):
             else:
                 state["real_balance"]="0.00"
                 config["capital"]=0.0
-                state["fixed"]=0.0+state["safi"]
+                reset_trading_state(0.0) # يصفر كل شي
                 state["no_balance_alert"]=True
                 state["is_running"]=False
                 state["binance_status"]=f"⛔ لا يوجد رصيد حقيقي - اضف API"
                 return jsonify({"ok":True, "capital": 0, "mode": "REAL", "real_balance": "0.00", "error": "no_balance", "balance": 0})
         except Exception as e:
-            state["real_balance"]="0.00"
+            state["real_balance"]=f"{real_bal:.2f}"
             config["capital"]=real_bal
-            state["fixed"]=real_bal+state["safi"]
+            reset_trading_state(real_bal)
         state["binance_status"]=f"V100 REAL {config['capital']:.2f}$"
         return jsonify({"ok":True, "capital": config["capital"], "mode": "REAL", "real_balance": state["real_balance"]})
     return jsonify({"ok":True, "capital": config["capital"], "mode": state["mode"], "real_balance": state["real_balance"]})
@@ -328,17 +344,7 @@ def home():
 .grid{display:grid;gap:8px}
 .box{background:linear-gradient(180deg,#0A1428,#060A14);border:2px solid #D4AF3730;border-radius:12px;padding:10px 6px;text-align:center;min-width:0}
 .box label{font-size:13px;color:#E2E8F0;display:block;margin-bottom:6px;font-weight:900}
-.box input{
-width:100%;height:58px;background:#020617;border:2.5px solid #FFD700;border-radius:12px;
-color:#FFF;
-font-family:'JetBrains Mono',monospace!important;
-font-weight:900!important;
-font-size:28px!important;
-text-align:center;
-direction:ltr!important;
-unicode-bidi:plaintext;
-letter-spacing:1px;
-}
+.box input{width:100%;height:58px;background:#020617;border:2.5px solid #FFD700;border-radius:12px;color:#FFF;font-family:'JetBrains Mono',monospace!important;font-weight:900!important;font-size:28px!important;text-align:center;direction:ltr!important;unicode-bidi:plaintext;letter-spacing:1px;}
 .box input:focus{border-color:#00FF88;outline:none;box-shadow:0 0 14px #FFD70066}
 .step-row{display:flex;gap:6px;align-items:center;margin-top:6px}
 .step-btn{width:56px;height:58px;background:#1A2A4A;color:#FFD700;border:2.5px solid #FFD700;border-radius:12px;font-weight:900;font-size:30px;cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
@@ -355,7 +361,7 @@ letter-spacing:1px;
 <button id="btnTest" class="mode-btn" onclick="switchMode('mode_test')" style="background:#0A1F3A;color:#22D3EE;border-color:#22D3EE">🧪 تجريبي TESTNET<br><span id="testBal" style="font-size:11px">10000.00</span></button>
 <button id="btnReal" class="mode-btn" onclick="switchMode('mode_real')" style="background:#1A1000;color:#D4AF37;border-color:#D4AF37">👑 حقيقي LEGEND<br><span id="realBal" style="font-size:11px">--</span></button>
 </div>
-<div class="panel"><h3 id="mainTitle">👑 V100 DUAL - أرقام إنجليزية كبيرة 👑</h3><div class="grid">
+<div class="panel"><h3 id="mainTitle">👑 V100 DUAL - تصفير أوتوماتيك 👑</h3><div class="grid">
 <div class="box" style="border:2px solid #FFD700"><label id="capLabel">💰 راس المال $</label><div class="step-row"><button class="step-btn" type="button" onclick="stepCap(-100)">-</button><input id="cap" type="text" inputmode="decimal" lang="en" autocomplete="off" value="10000"><button class="step-btn" type="button" onclick="stepCap(100)">+</button></div><div id="capInfo" class="small-info">🧪 10000$ TESTNET</div></div>
 <div class="box"><label>📦 حجم اساسي $</label><div class="step-row"><button class="step-btn" type="button" onclick="step('per',-1)">-</button><input id="per" type="text" inputmode="decimal" lang="en" value="3"><button class="step-btn" type="button" onclick="step('per',1)">+</button></div><div id="dynVal" class="small-info" style="color:#00FF88">ديناميكي 3$</div></div>
 <div class="box"><label>🎯 هدف القفل $</label><div class="step-row"><button class="step-btn" type="button" onclick="stepFloat('targ',-0.01)">-</button><input id="targ" type="text" inputmode="decimal" lang="en" value="0.05"><button class="step-btn" type="button" onclick="stepFloat('targ',0.01)">+</button></div><div id="targVal" class="small-info">0.05$</div></div>
@@ -411,7 +417,7 @@ async function switchMode(cmd){
   enforceEnglish(document.getElementById('cap'));
   if(j.error=='no_balance'){
     document.getElementById('noBalanceAlert').classList.add('show');
-    document.getElementById('noBalanceAlert').innerHTML='⛔ رصيدك الحقيقي: '+en(j.balance||0,2)+'$ - الحقل يظهر '+(j.capital||0)+'$';
+    document.getElementById('noBalanceAlert').innerHTML='⛔ رصيدك الحقيقي: '+en(j.balance||0,2)+'$ - الحقول تصفرت 0$';
   } else {
     document.getElementById('noBalanceAlert').classList.remove('show');
   }
@@ -439,7 +445,7 @@ async function load(){
     const r=await fetch('/api/data'); const d=await r.json();
     if(d.no_balance_alert){
       document.getElementById('noBalanceAlert').classList.add('show');
-      document.getElementById('noBalanceAlert').innerHTML='⛔ لا يتوفر رصيد حقيقي - رصيدك '+d.real_balance+'$ - الحقل '+en(d.config.capital,0)+'$';
+      document.getElementById('noBalanceAlert').innerHTML='⛔ رصيد حقيقي '+d.real_balance+'$ - الحقل '+en(d.config.capital,0)+'$ - كل الحقول تصفرت';
     } else { document.getElementById('noBalanceAlert').classList.remove('show'); }
     if(document.activeElement.tagName!=='INPUT'){
       document.getElementById('cap').value=en(d.config.capital,0);
@@ -448,8 +454,7 @@ async function load(){
       document.getElementById('hcap').value=en(d.config.hospital_cap,0);
     }
     if(d.mode=='REAL'){ document.getElementById('capLabel').innerText='💰 راس المال $ 👑 حقيقي'; document.getElementById('capInfo').innerText='👑 '+d.real_balance+'$ = '+en(d.config.capital,0)+'$'; } else { document.getElementById('capLabel').innerText='💰 راس المال $ 🧪 تجريبي'; document.getElementById('capInfo').innerText='🧪 '+d.test_balance+'$ = '+en(d.config.capital,0)+'$'; }
-    document.getElementById('elapsed').innerText=en(d.elapsed,0)+'s'; document.getElementById('rate').innerText='V100 - '+en(d.treatment.length,0)+'/'+en(d.config.hospital_cap,0); document.getElementById('profit').innerText='+'+en(d.doctor.profit,2)+'$'; document.getElementById('healed').innerText=en(d.doctor.healed,0)+' شفى'; document.getElementById('f1').innerText=en(d.fixed,2)+'$'; document.getElementById('f2').innerText=en(d.loss_pool,2)+'$'; document.getElementById('f2c').innerText=en(d.treatment.length,0)+' دواء'; let safiCls = Number(d.safi)>=0?'profit-pos':'profit-neg'; document.getElementById('f3').innerHTML='<span class="'+safiCls+'">+'+en(d.safi,3)+'$</span>'; document.getElementById('maxSafi').innerText='اعلى '+en(d.max_safi||d.safi,0)+'$ - حجم '+en(d.dynamic_per_trade||3,0)+'$'; document.getElementById('dynVal').innerText='ديناميكي '+en(d.dynamic_per_trade||3,0)+'$'; document.getElementById('f5').innerText=en(d.total,3)+'$'; let ghairCls = Number(d.ghair)>=0?'profit-pos':'profit-neg'; document.getElementById('f6').innerHTML='<span class="'+ghairCls+'">'+en(d.ghair,3)+'$ / '+en(d.config.target_dollar,2)+'$</span>'; document.getElementById('btnRun').innerText=d.is_running?'⏸️ ايقاف':'▶️ تشغيل'; if(d.protect_triggered){ document.getElementById('btnRun').innerText=d.no_balance_alert?'⛔ لا يوجد رصيد':'🔒 حماية'; document.getElementById('btnRun').style.background='#FF3344'; } else { document.getElementById('btnRun').style.background='#10B981'; } document.getElementById('btnDoc').innerText=d.config.doctor_enabled?'🔥 مولعة ON':'🔥 OFF'; document.getElementById('src').innerText=d.data_source; document.getElementById('bin').innerText=d.binance_status; document.getElementById('time').innerText=new Date().toLocaleTimeString('en-GB',{hour12:false}); document.getElementById('testBal').innerText=d.test_balance+' USDT'; document.getElementById('realBal').innerText=d.real_balance+' USDT'; if(d.mode=='TESTNET'){ document.getElementById('btnTest').style.background='#22D3EE'; document.getElementById('btnTest').style.color='#000'; document.getElementById('btnReal').style.background='#1A1000'; document.getElementById('btnReal').style.color='#D4AF37'; document.getElementById('mainTitle').innerText='🧪 TESTNET '+d.test_balance+'$ = '+en(d.config.capital,0)+'$'; document.getElementById('mainTitle').style.color='#22D3EE'; } else { document.getElementById('btnReal').style.background='#D4AF37'; document.getElementById('btnReal').style.color='#000'; document.getElementById('btnTest').style.background='#0A1F3A'; document.getElementById('btnTest').style.color='#22D3EE'; document.getElementById('mainTitle').innerText='👑 LEGEND '+d.real_balance+'$ حقيقي - الحقل '+en(d.config.capital,0)+'$'; document.getElementById('mainTitle').style.color='#D4AF37'; } let h=''; for(const p of d.positions){ let cls=colorClass(p[5]); let cls2=colorClass(p[4]); h+=`<div class="rw" style="grid-template-columns:1.2fr 0.8fr 1.2fr 0.8fr 0.8fr 0.8fr 0.6fr"><div style="color:#FFF;font-weight:900">${p[0]}</div><div><span class="badge" style="background:${d.mode=='TESTNET'?'#22D3EE':'#38BDF8'};color:#000">${d.mode=='TESTNET'?'TEST':'BIN'}</span></div><div class="${cls}" style="font-size:12px">${p[6]}</div><div style="color:#FFD700">${en(p[2],4)}</div><div style="color:#FFF">${en(p[3],4)}</div><div class="${cls2}">${en(p[4],3)}$</div><div class="${cls}">${en(p[5],2)}%</div></div>` } document.getElementById('plist').innerHTML=h||'<div style="padding:10px;text-align:center;color:#D4AF3760">⏳ BINANCE يطحن...</div>'; let dl=''; for(const p of d.doctor_positions){ let cls=colorClass(p[5]); let invoice=en(p[8],2); let target=en(p[8]*0.60,2); let profitCls=colorClass(p[4]); dl+=`<div class="rw" style="grid-template-columns:1fr 1fr 0.6fr 0.6fr 0.6fr 0.8fr 0.6fr;background:#0E1E2E"><div><span class="badge" style="background:#D4AF37;color:#000">${p[0]}</span></div><div style="color:#FACC15;font-weight:800">${p[9]}</div><div style="color:#FB923C">${invoice}$</div><div style="color:#00FF88">${target}$</div><div class="${profitCls}">${en(p[4],3)}$</div><div class="${cls}" style="font-size:11px">${p[6]}</div><div><span class="badge" style="background:${(p[10]||'TV').includes('TRADINGVIEW')?'#22D3EE':'#D4AF37'};color:#000;font-size:8px">${(p[10]||'TV').substring(0,3)}</span></div></div>` } document.getElementById('dlist').innerHTML=dl||'<div style="padding:10px;text-align:center;background:#0E1E2E;color:#D4AF37">👑 0/30 فخامة ✅</div>'; let t=''; for(const p of d.treatment){ let loss='-'+en(p[8],2)+'$'; let tgt=en(p[9],4); t+=`<div class="rw" style="grid-template-columns:1fr 1.2fr 0.6fr 0.6fr 0.6fr 0.6fr;background:#1A1500"><div><span class="badge" style="background:#FB923C;color:#000">${p[0]}</span></div><div style="color:#D4AF37;font-size:11px">${p[7]}</div><div class="profit-neg">${loss}</div><div style="color:#FFD700">${tgt}</div><div>${en(p[3],4)}</div><div class="profit-neg">5%</div></div>` } document.getElementById('tlist').innerHTML=t||'<div style="padding:10px;text-align:center;background:#1A1500;color:#10B981">👑 0/30 فاضي ✅</div>'; }catch(e){} }
-// منع التحديث التلقائي يخرب الكتابة + تحويل عربي لإنجليزي فوري
+    document.getElementById('elapsed').innerText=en(d.elapsed,0)+'s'; document.getElementById('rate').innerText='V100 - '+en(d.treatment.length,0)+'/'+en(d.config.hospital_cap,0); document.getElementById('profit').innerText='+'+en(d.doctor.profit,2)+'$'; document.getElementById('healed').innerText=en(d.doctor.healed,0)+' شفى'; document.getElementById('f1').innerText=en(d.fixed,2)+'$'; document.getElementById('f2').innerText=en(d.loss_pool,2)+'$'; document.getElementById('f2c').innerText=en(d.treatment.length,0)+' دواء'; let safiCls = Number(d.safi)>=0?'profit-pos':'profit-neg'; document.getElementById('f3').innerHTML='<span class="'+safiCls+'">+'+en(d.safi,3)+'$</span>'; document.getElementById('maxSafi').innerText='اعلى '+en(d.max_safi||d.safi,0)+'$ - حجم '+en(d.dynamic_per_trade||3,0)+'$'; document.getElementById('dynVal').innerText='ديناميكي '+en(d.dynamic_per_trade||3,0)+'$'; document.getElementById('f5').innerText=en(d.total,3)+'$'; let ghairCls = Number(d.ghair)>=0?'profit-pos':'profit-neg'; document.getElementById('f6').innerHTML='<span class="'+ghairCls+'">'+en(d.ghair,3)+'$ / '+en(d.config.target_dollar,2)+'$</span>'; document.getElementById('btnRun').innerText=d.is_running?'⏸️ ايقاف':'▶️ تشغيل'; if(d.protect_triggered){ document.getElementById('btnRun').innerText=d.no_balance_alert?'⛔ لا يوجد رصيد':'🔒 حماية'; document.getElementById('btnRun').style.background='#FF3344'; } else { document.getElementById('btnRun').style.background='#10B981'; } document.getElementById('btnDoc').innerText=d.config.doctor_enabled?'🔥 مولعة ON':'🔥 OFF'; document.getElementById('src').innerText=d.data_source; document.getElementById('bin').innerText=d.binance_status; document.getElementById('time').innerText=new Date().toLocaleTimeString('en-GB',{hour12:false}); document.getElementById('testBal').innerText=d.test_balance+' USDT'; document.getElementById('realBal').innerText=d.real_balance+' USDT'; if(d.mode=='TESTNET'){ document.getElementById('btnTest').style.background='#22D3EE'; document.getElementById('btnTest').style.color='#000'; document.getElementById('btnReal').style.background='#1A1000'; document.getElementById('btnReal').style.color='#D4AF37'; document.getElementById('mainTitle').innerText='🧪 TESTNET '+d.test_balance+'$ = '+en(d.config.capital,0)+'$'; document.getElementById('mainTitle').style.color='#22D3EE'; } else { document.getElementById('btnReal').style.background='#D4AF37'; document.getElementById('btnReal').style.color='#000'; document.getElementById('btnTest').style.background='#0A1F3A'; document.getElementById('btnTest').style.color='#22D3EE'; document.getElementById('mainTitle').innerText='👑 LEGEND '+d.real_balance+'$ حقيقي - الحقل '+en(d.config.capital,0)+'$'; document.getElementById('mainTitle').style.color='#D4AF37'; } let h=''; for(const p of d.positions){ let cls=colorClass(p[5]); let cls2=colorClass(p[4]); h+=`<div class="rw" style="grid-template-columns:1.2fr 0.8fr 1.2fr 0.8fr 0.8fr 0.8fr 0.6fr"><div style="color:#FFF;font-weight:900">${p[0]}</div><div><span class="badge" style="background:${d.mode=='TESTNET'?'#22D3EE':'#38BDF8'};color:#000">${d.mode=='TESTNET'?'TEST':'BIN'}</span></div><div class="${cls}" style="font-size:12px">${p[6]}</div><div style="color:#FFD700">${en(p[2],4)}</div><div style="color:#FFF">${en(p[3],4)}</div><div class="${cls2}">${en(p[4],3)}$</div><div class="${cls}">${en(p[5],2)}%</div></div>` } document.getElementById('plist').innerHTML=h||'<div style="padding:10px;text-align:center;color:#D4AF3760">⏳ فاضي - 0$</div>'; let dl=''; for(const p of d.doctor_positions){ let cls=colorClass(p[5]); let invoice=en(p[8],2); let target=en(p[8]*0.60,2); let profitCls=colorClass(p[4]); dl+=`<div class="rw" style="grid-template-columns:1fr 1fr 0.6fr 0.6fr 0.6fr 0.8fr 0.6fr;background:#0E1E2E"><div><span class="badge" style="background:#D4AF37;color:#000">${p[0]}</span></div><div style="color:#FACC15;font-weight:800">${p[9]}</div><div style="color:#FB923C">${invoice}$</div><div style="color:#00FF88">${target}$</div><div class="${profitCls}">${en(p[4],3)}$</div><div class="${cls}" style="font-size:11px">${p[6]}</div><div><span class="badge" style="background:${(p[10]||'TV').includes('TRADINGVIEW')?'#22D3EE':'#D4AF37'};color:#000;font-size:8px">${(p[10]||'TV').substring(0,3)}</span></div></div>` } document.getElementById('dlist').innerHTML=dl||'<div style="padding:10px;text-align:center;background:#0E1E2E;color:#D4AF37">👑 0/30 فخامة - 0$</div>'; let t=''; for(const p of d.treatment){ let loss='-'+en(p[8],2)+'$'; let tgt=en(p[9],4); t+=`<div class="rw" style="grid-template-columns:1fr 1.2fr 0.6fr 0.6fr 0.6fr 0.6fr;background:#1A1500"><div><span class="badge" style="background:#FB923C;color:#000">${p[0]}</span></div><div style="color:#D4AF37;font-size:11px">${p[7]}</div><div class="profit-neg">${loss}</div><div style="color:#FFD700">${tgt}</div><div>${en(p[3],4)}</div><div class="profit-neg">5%</div></div>` } document.getElementById('tlist').innerHTML=t||'<div style="padding:10px;text-align:center;background:#1A1500;color:#10B981">👑 0/30 فاضي - 0$</div>'; }catch(e){} }
 document.querySelectorAll('input').forEach(inp=>{
   inp.addEventListener('input',()=>enforceEnglish(inp));
   inp.addEventListener('focus',()=>{inp.dataset.editing='1';});
