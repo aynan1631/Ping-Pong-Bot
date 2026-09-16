@@ -1,4 +1,4 @@
-flask
-requests
-python-binance
-gunicorn
+Flask==2.3.3
+python-binance==1.0.19
+requests==2.31.0
+gunicorn==21.2.0
