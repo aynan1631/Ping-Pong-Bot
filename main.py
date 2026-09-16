@@ -15,14 +15,14 @@ except:
     REAL_CLIENT = None
     TEST_CLIENT = None
 
-config={"capital":100.0,"per_trade":10.0,"base_per_trade":10.0,"target_dollar":0.1,"sl_pct":0.15,"hospital_cap":15,"max_pos":15,"min_vol":1000,"doctor_enabled":True,"doctor_auto":True,"doctor_threshold":2,"doctor_extra":0.04,"doctor_sl":1.0,"max_doctors":3,"auto_compound":True,"compound_step":50.0,"compound_add":15.0,"protect_pct":0.01}
+config={"capital":1000.0,"per_trade":200.0,"base_per_trade":200.0,"target_dollar":0.5,"sl_pct":0.35,"hospital_cap":30,"max_pos":8,"min_vol":2000000,"doctor_enabled":True,"doctor_auto":True,"doctor_threshold":2,"doctor_extra":0.04,"doctor_sl":1.0,"max_doctors":3,"auto_compound":True,"compound_step":50.0,"compound_add":25.0,"protect_pct":0.05}
 BANNED = {"ASTR","ASTAR","SAGA","FF"}
 
 # تحديد الوضع الافتراضي من Railway
 DEFAULT_TEST = os.getenv("BINANCE_TESTNET","true").lower()=="true"
 DEFAULT_MODE = "TESTNET" if DEFAULT_TEST else "REAL"
 
-state={"fixed":100.0,"safi":0.0,"max_safi":0.0,"ghair":0.0,"trades_closed":0,"loss_pool":0.0,"positions":[],"treatment":[],"doctor_positions":[],"binance_status":f"V100 DUAL - {DEFAULT_MODE}","data_source":f"V100 DUAL {DEFAULT_MODE}","is_running":True,"mode":DEFAULT_MODE,"real_balance":"--","test_balance":"--","doctor":{"healed":0,"profit":0.0,"start":time.time(),"rate":99.5,"active_patient":None,"active_doctor":None},"specialty":False,"last":"V100 DUAL","healing_mode":False,"protect_triggered":False}
+state={"fixed":1260.0,"safi":260.0,"max_safi":219.265,"ghair":0.0,"trades_closed":0,"loss_pool":0.0,"positions":[],"treatment":[],"doctor_positions":[],"binance_status":f"V100 DUAL - {DEFAULT_MODE}","data_source":f"V100 DUAL {DEFAULT_MODE}","is_running":True,"mode":DEFAULT_MODE,"real_balance":"--","test_balance":"--","doctor":{"healed":0,"profit":0.0,"start":time.time(),"rate":99.5,"active_patient":None,"active_doctor":None},"specialty":False,"last":"V100 DUAL","healing_mode":False,"protect_triggered":False}
 
 def get_dynamic_per_trade():
     if not config["auto_compound"]: return config["per_trade"]
@@ -39,7 +39,7 @@ def ema(data, period):
 def check_macd(symbol):
     try:
         r=requests.get(f"https://api.binance.com/api/v3/klines?symbol={symbol}USDT&interval=15m&limit=50", timeout=4)
-        if r.status_code!=10: return True, 0
+        if r.status_code!=200: return True, 0
         closes=[float(k[4]) for k in r.json()]
         if len(closes)<30: return True, 0
         e12=ema(closes,12); e26=ema(closes,26)
