@@ -1,6 +1,7 @@
 """
-V100 LEGEND DUAL - نسخة نهائية - الحقل يطلع رصيد Binance الحقيقي
-تجريبي 10000$ - حقيقي يطلع 0 لو صفر و 20 لو 20
+V100 LEGEND DUAL - النسخة النهائية الكاملة
+- تجريبي 10000$ - حقيقي يطلع رصيد Binance الحقيقي 0 أو 20
+- أرقام إنجليزية كبيرة + تحكم حتى والبوت شغال
 """
 from flask import Flask, jsonify, request
 import threading, time, os, requests
@@ -139,7 +140,6 @@ def engine():
                         state["binance_status"]=f"⛔ لا يوجد رصيد حقيقي {rb}$ - اشحن Binance"
                         time.sleep(2); continue
                 except: pass
-
             if state["safi"] > state["max_safi"]: state["max_safi"] = state["safi"]
             config["per_trade"] = get_dynamic_per_trade()
             for p in state["treatment"][:]:
@@ -285,7 +285,6 @@ def control(cmd):
                 else:
                     state["no_balance_alert"]=False; state["is_running"]=True
             else:
-                # ما فيه API - نعتبر الرصيد صفر ويطلع صفر بالحقل
                 state["real_balance"]="0.00"
                 config["capital"]=0.0
                 state["fixed"]=0.0+state["safi"]
@@ -321,31 +320,98 @@ def api_data():
 
 @app.route('/')
 def home():
-    return """<html dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link href="https://fonts.googleapis.com/css2?family=Cairo:wght@700;800;900&family=JetBrains+Mono:wght@700;800&display=swap" rel="stylesheet"><style>*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at top,#0A1931 0%,#060A14 70%);color:#E8DCC6;font-family:'Cairo';overflow-x:hidden}.top{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;margin:6px;background:linear-gradient(135deg,#0F1E3A,#1A2F5A);border:1px solid #D4AF3755;border-radius:10px;font-size:13px;font-weight:900;color:#D4AF37;flex-wrap:wrap;gap:6px}.alert{margin:6px;padding:14px;border-radius:12px;text-align:center;font-weight:900;font-size:14px;display:none}.alert.show{display:block}.alert.no-balance{background:linear-gradient(135deg,#FF1744,#B71C1C);color:#FFF;border:2px solid #FF5252;animation:pulse 1.5s infinite}@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.02)}}.panel{background:linear-gradient(180deg,#0F1C33,#0A1428);border:1px solid #D4AF3730;border-radius:14px;margin:6px;padding:12px}.panel h3{margin:0 0 10px;text-align:center;color:#FFD700;font-size:18px;font-weight:900}.grid{display:grid;gap:6px}.box{background:linear-gradient(180deg,#0A1428,#060A14);border:1px solid #D4AF3725;border-radius:10px;padding:6px 4px;text-align:center;min-width:0}.box label{font-size:12px;color:#E2E8F0;display:block;margin-bottom:5px;font-weight:800}.box input{width:100%;background:#020617;border:1.2px solid #D4AF37;border-radius:8px;color:#FFF;font-family:'JetBrains Mono'!important;font-weight:800;font-size:14px;text-align:center;padding:8px 2px;direction:ltr!important}.step-row{display:flex;gap:4px;align-items:center;margin-top:4px}.step-btn{width:42px;height:42px;background:#1A2A4A;color:#FFD700;border:1.5px solid #D4AF37;border-radius:10px;font-weight:900;font-size:20px;cursor:pointer}.step-btn:active{transform:scale(0.9);background:#D4AF37;color:#000}@media(max-width:768px){.grid{grid-template-columns:1fr 1fr}}@media(min-width:769px){.grid{grid-template-columns:repeat(4,1fr)}}.btns{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;padding:10px}.btn{border:none;border-radius:22px;padding:10px 16px;font-family:'Cairo';font-size:12px;font-weight:900;cursor:pointer;white-space:nowrap}.mode-bar{display:flex;gap:8px;justify-content:center;padding:8px}.mode-btn{flex:1;max-width:200px;padding:14px;border-radius:12px;border:2px solid;font-family:'Cairo';font-weight:900;font-size:14px;cursor:pointer}.cards{display:grid;gap:6px;padding:6px}.card{background:linear-gradient(180deg,#122040,#0A1428);border:1px solid #D4AF3720;border-radius:12px;padding:10px 4px;text-align:center;min-width:0}.card.gold{border-color:#D4AF37}.card.safi{border-color:#10B981}.lab{font-size:12px;color:#CBD5E1;margin-bottom:5px;font-weight:800}.val{font-family:'JetBrains Mono'!important;font-weight:900;direction:ltr!important;white-space:nowrap;font-size:14px}@media(max-width:768px){.cards{grid-template-columns:1fr 1fr}.val{font-size:14px!important}.card:nth-child(3){grid-column:1 / -1}}@media(min-width:769px){.cards{grid-template-columns:repeat(5,1fr)}.val{font-size:16px!important}.val.g{font-size:22px!important}.val.y{font-size:18px!important}}.tbl{margin:6px;border-radius:12px;overflow:hidden;border:1px solid #D4AF3720;overflow-x:auto}.th{display:grid;padding:12px 8px;font-size:14px;font-weight:900;color:#FFD700;background:linear-gradient(90deg,#1A2A4A 0%,#223A6A 100%);min-width:560px}.rw{display:grid;padding:9px 8px;font-size:13px;background:#0E1A30;border-top:1px solid #1A2A4A50;min-width:560px;align-items:center}.rw div{font-family:'JetBrains Mono'!important;font-weight:800;direction:ltr!important;font-size:13px;white-space:nowrap}.badge{border-radius:10px;padding:4px 8px;font-size:10px;font-weight:900;display:inline-block;direction:ltr!important;font-family:'JetBrains Mono'}.profit-pos{color:#00FF88!important;text-shadow:0 0 10px rgba(0,255,136,0.9);font-weight:900!important}.profit-neg{color:#FF3344!important;text-shadow:0 0 10px rgba(255,51,68,0.9);font-weight:900!important}.foot{padding:8px 12px;font-size:11px;background:#020617;color:#D4AF37;display:flex;justify-content:space-between;font-family:'JetBrains Mono';direction:ltr;flex-wrap:wrap;gap:4px}</style></head><body>
+    return """<html dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link href="https://fonts.googleapis.com/css2?family=Cairo:wght@700;800;900&family=JetBrains+Mono:wght@700;800;900&display=swap" rel="stylesheet"><style>
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at top,#0A1931 0%,#060A14 70%);color:#E8DCC6;font-family:'Cairo';overflow-x:hidden}
+.top{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;margin:6px;background:linear-gradient(135deg,#0F1E3A,#1A2F5A);border:1px solid #D4AF3755;border-radius:10px;font-size:13px;font-weight:900;color:#D4AF37;flex-wrap:wrap;gap:6px}
+.alert{margin:6px;padding:14px;border-radius:12px;text-align:center;font-weight:900;font-size:14px;display:none}.alert.show{display:block}.alert.no-balance{background:linear-gradient(135deg,#FF1744,#B71C1C);color:#FFF;border:2px solid #FF5252;animation:pulse 1.5s infinite}@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.02)}}
+.panel{background:linear-gradient(180deg,#0F1C33,#0A1428);border:1px solid #D4AF3730;border-radius:14px;margin:6px;padding:12px}.panel h3{margin:0 0 10px;text-align:center;color:#FFD700;font-size:18px;font-weight:900}
+.grid{display:grid;gap:8px}
+.box{background:linear-gradient(180deg,#0A1428,#060A14);border:2px solid #D4AF3730;border-radius:12px;padding:10px 6px;text-align:center;min-width:0}
+.box label{font-size:13px;color:#E2E8F0;display:block;margin-bottom:6px;font-weight:900}
+.box input{
+width:100%;height:58px;background:#020617;border:2.5px solid #FFD700;border-radius:12px;
+color:#FFF;
+font-family:'JetBrains Mono',monospace!important;
+font-weight:900!important;
+font-size:28px!important;
+text-align:center;
+direction:ltr!important;
+unicode-bidi:plaintext;
+letter-spacing:1px;
+}
+.box input:focus{border-color:#00FF88;outline:none;box-shadow:0 0 14px #FFD70066}
+.step-row{display:flex;gap:6px;align-items:center;margin-top:6px}
+.step-btn{width:56px;height:58px;background:#1A2A4A;color:#FFD700;border:2.5px solid #FFD700;border-radius:12px;font-weight:900;font-size:30px;cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+.step-btn:active{transform:scale(0.90);background:#FFD700;color:#000}
+@media(max-width:768px){.grid{grid-template-columns:1fr 1fr}}@media(min-width:769px){.grid{grid-template-columns:repeat(4,1fr)}}
+.btns{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;padding:10px}.btn{border:none;border-radius:22px;padding:10px 16px;font-family:'Cairo';font-size:12px;font-weight:900;cursor:pointer;white-space:nowrap}
+.mode-bar{display:flex;gap:8px;justify-content:center;padding:8px}.mode-btn{flex:1;max-width:200px;padding:14px;border-radius:12px;border:2px solid;font-family:'Cairo';font-weight:900;font-size:14px;cursor:pointer}
+.cards{display:grid;gap:6px;padding:6px}.card{background:linear-gradient(180deg,#122040,#0A1428);border:1px solid #D4AF3720;border-radius:12px;padding:10px 4px;text-align:center;min-width:0}.card.gold{border-color:#D4AF37}.card.safi{border-color:#10B981}.lab{font-size:12px;color:#CBD5E1;margin-bottom:5px;font-weight:800}.val{font-family:'JetBrains Mono'!important;font-weight:900;direction:ltr!important;white-space:nowrap;font-size:14px}@media(max-width:768px){.cards{grid-template-columns:1fr 1fr}.val{font-size:14px!important}.card:nth-child(3){grid-column:1 / -1}}@media(min-width:769px){.cards{grid-template-columns:repeat(5,1fr)}.val{font-size:16px!important}.val.g{font-size:22px!important}.val.y{font-size:18px!important}}.tbl{margin:6px;border-radius:12px;overflow:hidden;border:1px solid #D4AF3720;overflow-x:auto}.th{display:grid;padding:12px 8px;font-size:14px;font-weight:900;color:#FFD700;background:linear-gradient(90deg,#1A2A4A 0%,#223A6A 100%);min-width:560px}.rw{display:grid;padding:9px 8px;font-size:13px;background:#0E1A30;border-top:1px solid #1A2A4A50;min-width:560px;align-items:center}.rw div{font-family:'JetBrains Mono'!important;font-weight:800;direction:ltr!important;font-size:13px;white-space:nowrap}.badge{border-radius:10px;padding:4px 8px;font-size:10px;font-weight:900;display:inline-block;direction:ltr!important;font-family:'JetBrains Mono'}.profit-pos{color:#00FF88!important;text-shadow:0 0 10px rgba(0,255,136,0.9);font-weight:900!important}.profit-neg{color:#FF3344!important;text-shadow:0 0 10px rgba(255,51,68,0.9);font-weight:900!important}.foot{padding:8px 12px;font-size:11px;background:#020617;color:#D4AF37;display:flex;justify-content:space-between;font-family:'JetBrains Mono';direction:ltr;flex-wrap:wrap;gap:4px}
+.small-info{font-size:11px;color:#FFD700;font-family:'JetBrains Mono';font-weight:900;margin-top:6px;direction:ltr}
+</style></head><body>
 <div class="top"><span id="elapsed">0s</span><span id="rate">V100 - 0/30</span><span id="profit">+0.00$</span><span id="healed">0</span><span id="spec">جاهز</span></div>
-<div id="noBalanceAlert" class="alert no-balance">⛔ تنبيه: لا يتوفر رصيد حقيقي كافي في منصة Binance<br>الرجاء شحن رصيد USDT قبل التداول الحقيقي<br>التجريبي يعمل بشكل طبيعي 🧪</div>
+<div id="noBalanceAlert" class="alert no-balance">⛔ لا يتوفر رصيد حقيقي<br>اشحن Binance</div>
 <div class="mode-bar">
 <button id="btnTest" class="mode-btn" onclick="switchMode('mode_test')" style="background:#0A1F3A;color:#22D3EE;border-color:#22D3EE">🧪 تجريبي TESTNET<br><span id="testBal" style="font-size:11px">10000.00</span></button>
 <button id="btnReal" class="mode-btn" onclick="switchMode('mode_real')" style="background:#1A1000;color:#D4AF37;border-color:#D4AF37">👑 حقيقي LEGEND<br><span id="realBal" style="font-size:11px">--</span></button>
 </div>
-<div class="panel"><h3 id="mainTitle">👑 V100 DUAL - رصيد أوتوماتيك 👑</h3><div class="grid">
-<div class="box" style="border:2px solid #D4AF37"><label id="capLabel">💰 راس المال $</label><div class="step-row"><button class="step-btn" onclick="stepCap(-100)">-</button><input id="cap" type="number" value="10000" onchange="save()"><button class="step-btn" onclick="stepCap(100)">+</button></div><div id="capInfo" style="font-size:9px;color:#D4AF37;margin-top:3px;font-weight:800">🧪 تجريبي 10000$</div></div>
-<div class="box"><label>📦 حجم اساسي $</label><div class="step-row"><button class="step-btn" onclick="step('per',-1)">-</button><input id="per" type="number" value="3" onchange="save()"><button class="step-btn" onclick="step('per',1)">+</button></div><div id="dynVal" style="font-size:10px;color:#00FF88;font-family:'JetBrains Mono';margin-top:3px;font-weight:900">ديناميكي 3$</div></div>
-<div class="box"><label>🎯 هدف القفل $</label><div class="step-row"><button class="step-btn" onclick="stepFloat('targ',-0.01)">-</button><input id="targ" type="number" step="0.01" value="0.05" onchange="save()"><button class="step-btn" onclick="stepFloat('targ',0.01)">+</button></div><div id="targVal" style="font-size:11px;color:#FFD700;font-family:'JetBrains Mono';margin-top:4px;font-weight:900">0.05$</div></div>
-<div class="box"><label>🏥 سعة المستشفى</label><div class="step-row"><button class="step-btn" onclick="step('hcap',-1)">-</button><input id="hcap" type="number" value="3" onchange="save()"><button class="step-btn" onclick="step('hcap',1)">+</button></div></div>
-</div></div><div class="btns"><button class="btn" style="background:#10B981;color:#FFF" id="btnRun" onclick="ctrl('toggle')">⏸️ ايقاف</button><button class="btn" style="background:#38BDF8;color:#000" onclick="ctrl('lock')">🔒 قفل ربح</button><button class="btn" style="background:#22D3EE;color:#000" id="btnDoc" onclick="ctrl('doctor')">🔥 مولعة ON</button><button class="btn" style="background:#000;color:#FF3344;border:2px solid #FF3344" onclick="ctrl('ban_clean')">🚫 تنظيف</button></div><div class="cards"><div class="card"><div class="lab">💰 ثابت</div><div class="val" id="f1">10000$</div></div><div class="card"><div class="lab">📦 الصيدلية</div><div class="val" id="f2">0.00$</div><div class="lab" id="f2c" style="font-size:10px">0 دواء</div></div><div class="card safi"><div class="lab">💹 صافي محقق 🔒</div><div class="val g" id="f3">+0.000$</div><div id="maxSafi" style="font-size:10px;color:#FFD700;font-family:'JetBrains Mono'">اعلى 0$</div></div><div class="card gold"><div class="lab">💎 الاجمالي</div><div class="val y" id="f5">10000$</div></div><div class="card"><div class="lab">📈 غير محققة</div><div class="val" id="f6">+0.000$</div></div></div><div class="tbl"><div class="th" style="grid-template-columns:1.2fr 0.8fr 1.2fr 0.8fr 0.8fr 0.8fr 0.6fr"><div>العملة</div><div>النوع</div><div>الحالة</div><div>الدخول</div><div>الحالي</div><div>ربح $</div><div>%</div></div><div id="plist"></div></div><div class="tbl" style="border-color:#22D3EE"><div class="th" style="grid-template-columns:1fr 1fr 0.6fr 0.6fr 0.6fr 0.8fr 0.6fr;background:#0E2A3A;color:#22D3EE"><div>🔥 طبيب TV</div><div>يعالج</div><div>الفاتورة</div><div>الهدف</div><div>الربح</div><div>الحالة</div><div>المصدر</div></div><div id="dlist"></div></div><div class="tbl" style="border-color:#D4AF37"><div class="th" style="grid-template-columns:1fr 1.2fr 0.6fr 0.6fr 0.6fr 0.6fr;background:#2A1F0F;color:#D4AF37"><div>💊 المستشفى</div><div>يعالج</div><div>الخسارة</div><div>الهدف</div><div>الحالي</div><div>%</div></div><div id="tlist"></div></div><div class="foot"><span id="src">V100 DUAL</span><span id="bin">...</span><span id="time">...</span></div><script>
+<div class="panel"><h3 id="mainTitle">👑 V100 DUAL - أرقام إنجليزية كبيرة 👑</h3><div class="grid">
+<div class="box" style="border:2px solid #FFD700"><label id="capLabel">💰 راس المال $</label><div class="step-row"><button class="step-btn" type="button" onclick="stepCap(-100)">-</button><input id="cap" type="text" inputmode="decimal" lang="en" autocomplete="off" value="10000"><button class="step-btn" type="button" onclick="stepCap(100)">+</button></div><div id="capInfo" class="small-info">🧪 10000$ TESTNET</div></div>
+<div class="box"><label>📦 حجم اساسي $</label><div class="step-row"><button class="step-btn" type="button" onclick="step('per',-1)">-</button><input id="per" type="text" inputmode="decimal" lang="en" value="3"><button class="step-btn" type="button" onclick="step('per',1)">+</button></div><div id="dynVal" class="small-info" style="color:#00FF88">ديناميكي 3$</div></div>
+<div class="box"><label>🎯 هدف القفل $</label><div class="step-row"><button class="step-btn" type="button" onclick="stepFloat('targ',-0.01)">-</button><input id="targ" type="text" inputmode="decimal" lang="en" value="0.05"><button class="step-btn" type="button" onclick="stepFloat('targ',0.01)">+</button></div><div id="targVal" class="small-info">0.05$</div></div>
+<div class="box"><label>🏥 سعة المستشفى</label><div class="step-row"><button class="step-btn" type="button" onclick="step('hcap',-1)">-</button><input id="hcap" type="text" inputmode="numeric" lang="en" value="3"><button class="step-btn" type="button" onclick="step('hcap',1)">+</button></div></div>
+</div></div>
+<div class="btns"><button class="btn" style="background:#10B981;color:#FFF" id="btnRun" onclick="ctrl('toggle')">⏸️ ايقاف</button><button class="btn" style="background:#38BDF8;color:#000" onclick="ctrl('lock')">🔒 قفل ربح</button><button class="btn" style="background:#22D3EE;color:#000" id="btnDoc" onclick="ctrl('doctor')">🔥 مولعة ON</button><button class="btn" style="background:#000;color:#FF3344;border:2px solid #FF3344" onclick="ctrl('ban_clean')">🚫 تنظيف</button></div>
+<div class="cards"><div class="card"><div class="lab">💰 ثابت</div><div class="val" id="f1">10000$</div></div><div class="card"><div class="lab">📦 الصيدلية</div><div class="val" id="f2">0.00$</div><div class="lab" id="f2c" style="font-size:10px">0 دواء</div></div><div class="card safi"><div class="lab">💹 صافي محقق 🔒</div><div class="val g" id="f3">+0.000$</div><div id="maxSafi" style="font-size:10px;color:#FFD700;font-family:'JetBrains Mono'">اعلى 0$</div></div><div class="card gold"><div class="lab">💎 الاجمالي</div><div class="val y" id="f5">10000$</div></div><div class="card"><div class="lab">📈 غير محققة</div><div class="val" id="f6">+0.000$</div></div></div>
+<div class="tbl"><div class="th" style="grid-template-columns:1.2fr 0.8fr 1.2fr 0.8fr 0.8fr 0.8fr 0.6fr"><div>العملة</div><div>النوع</div><div>الحالة</div><div>الدخول</div><div>الحالي</div><div>ربح $</div><div>%</div></div><div id="plist"></div></div>
+<div class="tbl" style="border-color:#22D3EE"><div class="th" style="grid-template-columns:1fr 1fr 0.6fr 0.6fr 0.6fr 0.8fr 0.6fr;background:#0E2A3A;color:#22D3EE"><div>🔥 طبيب TV</div><div>يعالج</div><div>الفاتورة</div><div>الهدف</div><div>الربح</div><div>الحالة</div><div>المصدر</div></div><div id="dlist"></div></div>
+<div class="tbl" style="border-color:#D4AF37"><div class="th" style="grid-template-columns:1fr 1.2fr 0.6fr 0.6fr 0.6fr 0.6fr;background:#2A1F0F;color:#D4AF37"><div>💊 المستشفى</div><div>يعالج</div><div>الخسارة</div><div>الهدف</div><div>الحالي</div><div>%</div></div><div id="tlist"></div></div>
+<div class="foot"><span id="src">V100 DUAL</span><span id="bin">...</span><span id="time">...</span></div>
+<script>
+function enforceEnglish(el){
+  if(!el) return;
+  let v=el.value||"";
+  const ar='٠١٢٣٤٥٦٧٨٩'; const en='0123456789';
+  for(let i=0;i<10;i++){ v=v.split(ar[i]).join(en[i]); }
+  v=v.replace(/[^0-9.]/g,'');
+  let parts=v.split('.');
+  if(parts.length>2){ v=parts[0]+'.'+parts.slice(1).join(''); }
+  el.value=v;
+}
 function en(n,d=2){ let num=Number(n); if(isNaN(num)) num=0; return num.toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d,useGrouping:false}); }
 function colorClass(v){ return Number(v) >= 0? 'profit-pos' : 'profit-neg'; }
-function step(id, delta){ let el=document.getElementById(id); let v=parseFloat(el.value)||0; v+=delta; if(v<1) v=1; el.value=Math.round(v); save(); }
-function stepFloat(id, delta){ let el=document.getElementById(id); let v=parseFloat(el.value)||0; v+=delta; if(v<0.01) v=0.01; el.value=v.toFixed(2); save(); }
-function stepCap(delta){ let el=document.getElementById('cap'); let v=parseFloat(el.value)||0; v+=delta; if(v<1) v=1; el.value=Math.round(v); save(); }
+function step(id, delta){
+  let el=document.getElementById(id);
+  enforceEnglish(el);
+  let v=parseFloat(el.value)||0;
+  v+=delta; if(v<1) v=1;
+  el.value=Math.round(v);
+  save();
+}
+function stepFloat(id, delta){
+  let el=document.getElementById(id);
+  enforceEnglish(el);
+  let v=parseFloat(el.value)||0;
+  v+=delta; if(v<0.01) v=0.01;
+  el.value=v.toFixed(2);
+  save();
+}
+function stepCap(delta){
+  let el=document.getElementById('cap');
+  enforceEnglish(el);
+  let v=parseFloat(el.value)||0;
+  v+=delta; if(v<0) v=0;
+  el.value=Math.round(v);
+  save();
+}
 async function switchMode(cmd){
   const res = await fetch('/api/control/'+cmd);
   const j = await res.json();
-  document.getElementById('cap').value = Math.round(j.capital);
+  document.getElementById('cap').value = Math.round(Number(j.capital)||0);
+  enforceEnglish(document.getElementById('cap'));
   if(j.error=='no_balance'){
     document.getElementById('noBalanceAlert').classList.add('show');
-    document.getElementById('noBalanceAlert').innerHTML='⛔ تنبيه: لا يتوفر رصيد حقيقي كافي في Binance<br>رصيدك الحالي: '+en(j.balance||0,2)+'$ - الرجاء الشحن<br>الحقل يعرض رصيدك الحقيقي 0$';
+    document.getElementById('noBalanceAlert').innerHTML='⛔ رصيدك الحقيقي: '+en(j.balance||0,2)+'$ - الحقل يظهر '+(j.capital||0)+'$';
   } else {
     document.getElementById('noBalanceAlert').classList.remove('show');
   }
@@ -357,23 +423,39 @@ async function ctrl(c){
   if(j.error=='no_balance'){
     document.getElementById('noBalanceAlert').classList.add('show');
     document.getElementById('cap').value = Math.round(j.capital||0);
-    document.getElementById('noBalanceAlert').innerHTML='⛔ لا يمكن التشغيل - رصيدك '+(j.balance||0)+'$<br>اشحن Binance أولاً - الحقل يظهر 0$';
     return;
   }
   load();
 }
-async function save(){ let cap=document.getElementById('cap').value, per=document.getElementById('per').value, targ=document.getElementById('targ').value, hcap=document.getElementById('hcap').value; const res=await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({capital:parseFloat(cap)||10000,per_trade:parseFloat(per)||3,target:parseFloat(targ)||0.05,target_dollar:parseFloat(targ)||0.05,hcap:parseInt(hcap)||3})}); const j=await res.json(); document.getElementById('targVal').innerText=en(j.config.target_dollar,2)+'$'; }
-async function load(){ try{ const r=await fetch('/api/data'); const d=await r.json();
-if(d.no_balance_alert){
-  document.getElementById('noBalanceAlert').classList.add('show');
-  document.getElementById('noBalanceAlert').innerHTML='⛔ لا يتوفر رصيد حقيقي كافي<br>رصيدك: '+d.real_balance+'$ - الحقل يظهر '+en(d.config.capital,0)+'$<br>اشحن - التجريبي شغال 🧪';
-} else {
-  if(!d.no_balance_alert) document.getElementById('noBalanceAlert').classList.remove('show');
+async function save(){
+  let cap=document.getElementById('cap'); let per=document.getElementById('per'); let targ=document.getElementById('targ'); let hcap=document.getElementById('hcap');
+  enforceEnglish(cap); enforceEnglish(per); enforceEnglish(targ); enforceEnglish(hcap);
+  const res=await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({capital:parseFloat(cap.value)||0,per_trade:parseFloat(per.value)||3,target:parseFloat(targ.value)||0.05,target_dollar:parseFloat(targ.value)||0.05,hcap:parseInt(hcap.value)||3})});
+  const j=await res.json();
+  document.getElementById('targVal').innerText=en(j.config.target_dollar,2)+'$';
 }
-document.getElementById('per').value=en(d.config.base_per_trade||d.config.per_trade,0); document.getElementById('targ').value=en(d.config.target_dollar,2); document.getElementById('hcap').value=en(d.config.hospital_cap,0);
-if(document.activeElement.id!=='cap'){ document.getElementById('cap').value=en(d.config.capital,0); }
-if(d.mode=='REAL'){ document.getElementById('capLabel').innerText='💰 راس المال $ 👑 حقيقي'; document.getElementById('capInfo').innerText='👑 '+d.real_balance+'$ من BINANCE - الحقل = '+en(d.config.capital,0)+'$'; } else { document.getElementById('capLabel').innerText='💰 راس المال $ 🧪 تجريبي'; document.getElementById('capInfo').innerText='🧪 '+d.test_balance+'$ من TESTNET - الحقل = '+en(d.config.capital,0)+'$'; }
-document.getElementById('elapsed').innerText=en(d.elapsed,0)+'s'; document.getElementById('rate').innerText='V100 - '+en(d.treatment.length,0)+'/'+en(d.config.hospital_cap,0); document.getElementById('profit').innerText='+'+en(d.doctor.profit,2)+'$'; document.getElementById('healed').innerText=en(d.doctor.healed,0)+' شفى'; document.getElementById('f1').innerText=en(d.fixed,2)+'$'; document.getElementById('f2').innerText=en(d.loss_pool,2)+'$'; document.getElementById('f2c').innerText=en(d.treatment.length,0)+' دواء'; let safiCls = Number(d.safi)>=0?'profit-pos':'profit-neg'; document.getElementById('f3').innerHTML='<span class="'+safiCls+'">+'+en(d.safi,3)+'$</span>'; document.getElementById('maxSafi').innerText='اعلى '+en(d.max_safi||d.safi,0)+'$ - حجم '+en(d.dynamic_per_trade||3,0)+'$'; document.getElementById('dynVal').innerText='ديناميكي '+en(d.dynamic_per_trade||3,0)+'$'; document.getElementById('f5').innerText=en(d.total,3)+'$'; let ghairCls = Number(d.ghair)>=0?'profit-pos':'profit-neg'; document.getElementById('f6').innerHTML='<span class="'+ghairCls+'">'+en(d.ghair,3)+'$ / '+en(d.config.target_dollar,2)+'$</span>'; document.getElementById('btnRun').innerText=d.is_running?'⏸️ ايقاف':'▶️ تشغيل'; if(d.protect_triggered){ document.getElementById('btnRun').innerText=d.no_balance_alert?'⛔ لا يوجد رصيد':'🔒 حماية'; document.getElementById('btnRun').style.background='#FF3344'; } else { document.getElementById('btnRun').style.background='#10B981'; } document.getElementById('btnDoc').innerText=d.config.doctor_enabled?'🔥 مولعة ON':'🔥 OFF'; document.getElementById('src').innerText=d.data_source; document.getElementById('bin').innerText=d.binance_status; document.getElementById('time').innerText=new Date().toLocaleTimeString('en-GB',{hour12:false}); document.getElementById('testBal').innerText=d.test_balance+' USDT'; document.getElementById('realBal').innerText=d.real_balance+' USDT'; if(d.mode=='TESTNET'){ document.getElementById('btnTest').style.background='#22D3EE'; document.getElementById('btnTest').style.color='#000'; document.getElementById('btnReal').style.background='#1A1000'; document.getElementById('btnReal').style.color='#D4AF37'; document.getElementById('mainTitle').innerText='🧪 V100-TESTNET '+d.test_balance+'$'; document.getElementById('mainTitle').style.color='#22D3EE'; } else { document.getElementById('btnReal').style.background='#D4AF37'; document.getElementById('btnReal').style.color='#000'; document.getElementById('btnTest').style.background='#0A1F3A'; document.getElementById('btnTest').style.color='#22D3EE'; document.getElementById('mainTitle').innerText='👑 V100-LEGEND '+d.real_balance+'$ حقيقي - الحقل '+en(d.config.capital,0)+'$'; document.getElementById('mainTitle').style.color='#D4AF37'; } let h=''; for(const p of d.positions){ let cls=colorClass(p[5]); let cls2=colorClass(p[4]); h+=`<div class="rw" style="grid-template-columns:1.2fr 0.8fr 1.2fr 0.8fr 0.8fr 0.8fr 0.6fr"><div style="color:#FFF;font-weight:900">${p[0]}</div><div><span class="badge" style="background:${d.mode=='TESTNET'?'#22D3EE':'#38BDF8'};color:#000">${d.mode=='TESTNET'?'TEST':'BIN'}</span></div><div class="${cls}" style="font-size:12px">${p[6]}</div><div style="color:#FFD700">${en(p[2],4)}</div><div style="color:#FFF">${en(p[3],4)}</div><div class="${cls2}">${en(p[4],3)}$</div><div class="${cls}">${en(p[5],2)}%</div></div>` } document.getElementById('plist').innerHTML=h||'<div style="padding:10px;text-align:center;color:#D4AF3760">⏳ BINANCE يطحن...</div>'; let dl=''; for(const p of d.doctor_positions){ let cls=colorClass(p[5]); let invoice=en(p[8],2); let target=en(p[8]*0.60,2); let profitCls=colorClass(p[4]); dl+=`<div class="rw" style="grid-template-columns:1fr 1fr 0.6fr 0.6fr 0.6fr 0.8fr 0.6fr;background:#0E1E2E"><div><span class="badge" style="background:#D4AF37;color:#000">${p[0]}</span></div><div style="color:#FACC15;font-weight:800">${p[9]}</div><div style="color:#FB923C">${invoice}$</div><div style="color:#00FF88">${target}$</div><div class="${profitCls}">${en(p[4],3)}$</div><div class="${cls}" style="font-size:11px">${p[6]}</div><div><span class="badge" style="background:${(p[10]||'TV').includes('TRADINGVIEW')?'#22D3EE':'#D4AF37'};color:#000;font-size:8px">${(p[10]||'TV').substring(0,3)}</span></div></div>` } document.getElementById('dlist').innerHTML=dl||'<div style="padding:10px;text-align:center;background:#0E1E2E;color:#D4AF37">👑 0/30 فخامة ✅</div>'; let t=''; for(const p of d.treatment){ let loss='-'+en(p[8],2)+'$'; let tgt=en(p[9],4); t+=`<div class="rw" style="grid-template-columns:1fr 1.2fr 0.6fr 0.6fr 0.6fr 0.6fr;background:#1A1500"><div><span class="badge" style="background:#FB923C;color:#000">${p[0]}</span></div><div style="color:#D4AF37;font-size:11px">${p[7]}</div><div class="profit-neg">${loss}</div><div style="color:#FFD700">${tgt}</div><div>${en(p[3],4)}</div><div class="profit-neg">5%</div></div>` } document.getElementById('tlist').innerHTML=t||'<div style="padding:10px;text-align:center;background:#1A1500;color:#10B981">👑 0/30 فاضي ✅</div>'; }catch(e){} } setInterval(load,1000); load();</script></body></html>"""
+async function load(){
+  try{
+    const r=await fetch('/api/data'); const d=await r.json();
+    if(d.no_balance_alert){
+      document.getElementById('noBalanceAlert').classList.add('show');
+      document.getElementById('noBalanceAlert').innerHTML='⛔ لا يتوفر رصيد حقيقي - رصيدك '+d.real_balance+'$ - الحقل '+en(d.config.capital,0)+'$';
+    } else { document.getElementById('noBalanceAlert').classList.remove('show'); }
+    if(document.activeElement.tagName!=='INPUT'){
+      document.getElementById('cap').value=en(d.config.capital,0);
+      document.getElementById('per').value=en(d.config.base_per_trade||d.config.per_trade,0);
+      document.getElementById('targ').value=en(d.config.target_dollar,2);
+      document.getElementById('hcap').value=en(d.config.hospital_cap,0);
+    }
+    if(d.mode=='REAL'){ document.getElementById('capLabel').innerText='💰 راس المال $ 👑 حقيقي'; document.getElementById('capInfo').innerText='👑 '+d.real_balance+'$ = '+en(d.config.capital,0)+'$'; } else { document.getElementById('capLabel').innerText='💰 راس المال $ 🧪 تجريبي'; document.getElementById('capInfo').innerText='🧪 '+d.test_balance+'$ = '+en(d.config.capital,0)+'$'; }
+    document.getElementById('elapsed').innerText=en(d.elapsed,0)+'s'; document.getElementById('rate').innerText='V100 - '+en(d.treatment.length,0)+'/'+en(d.config.hospital_cap,0); document.getElementById('profit').innerText='+'+en(d.doctor.profit,2)+'$'; document.getElementById('healed').innerText=en(d.doctor.healed,0)+' شفى'; document.getElementById('f1').innerText=en(d.fixed,2)+'$'; document.getElementById('f2').innerText=en(d.loss_pool,2)+'$'; document.getElementById('f2c').innerText=en(d.treatment.length,0)+' دواء'; let safiCls = Number(d.safi)>=0?'profit-pos':'profit-neg'; document.getElementById('f3').innerHTML='<span class="'+safiCls+'">+'+en(d.safi,3)+'$</span>'; document.getElementById('maxSafi').innerText='اعلى '+en(d.max_safi||d.safi,0)+'$ - حجم '+en(d.dynamic_per_trade||3,0)+'$'; document.getElementById('dynVal').innerText='ديناميكي '+en(d.dynamic_per_trade||3,0)+'$'; document.getElementById('f5').innerText=en(d.total,3)+'$'; let ghairCls = Number(d.ghair)>=0?'profit-pos':'profit-neg'; document.getElementById('f6').innerHTML='<span class="'+ghairCls+'">'+en(d.ghair,3)+'$ / '+en(d.config.target_dollar,2)+'$</span>'; document.getElementById('btnRun').innerText=d.is_running?'⏸️ ايقاف':'▶️ تشغيل'; if(d.protect_triggered){ document.getElementById('btnRun').innerText=d.no_balance_alert?'⛔ لا يوجد رصيد':'🔒 حماية'; document.getElementById('btnRun').style.background='#FF3344'; } else { document.getElementById('btnRun').style.background='#10B981'; } document.getElementById('btnDoc').innerText=d.config.doctor_enabled?'🔥 مولعة ON':'🔥 OFF'; document.getElementById('src').innerText=d.data_source; document.getElementById('bin').innerText=d.binance_status; document.getElementById('time').innerText=new Date().toLocaleTimeString('en-GB',{hour12:false}); document.getElementById('testBal').innerText=d.test_balance+' USDT'; document.getElementById('realBal').innerText=d.real_balance+' USDT'; if(d.mode=='TESTNET'){ document.getElementById('btnTest').style.background='#22D3EE'; document.getElementById('btnTest').style.color='#000'; document.getElementById('btnReal').style.background='#1A1000'; document.getElementById('btnReal').style.color='#D4AF37'; document.getElementById('mainTitle').innerText='🧪 TESTNET '+d.test_balance+'$ = '+en(d.config.capital,0)+'$'; document.getElementById('mainTitle').style.color='#22D3EE'; } else { document.getElementById('btnReal').style.background='#D4AF37'; document.getElementById('btnReal').style.color='#000'; document.getElementById('btnTest').style.background='#0A1F3A'; document.getElementById('btnTest').style.color='#22D3EE'; document.getElementById('mainTitle').innerText='👑 LEGEND '+d.real_balance+'$ حقيقي - الحقل '+en(d.config.capital,0)+'$'; document.getElementById('mainTitle').style.color='#D4AF37'; } let h=''; for(const p of d.positions){ let cls=colorClass(p[5]); let cls2=colorClass(p[4]); h+=`<div class="rw" style="grid-template-columns:1.2fr 0.8fr 1.2fr 0.8fr 0.8fr 0.8fr 0.6fr"><div style="color:#FFF;font-weight:900">${p[0]}</div><div><span class="badge" style="background:${d.mode=='TESTNET'?'#22D3EE':'#38BDF8'};color:#000">${d.mode=='TESTNET'?'TEST':'BIN'}</span></div><div class="${cls}" style="font-size:12px">${p[6]}</div><div style="color:#FFD700">${en(p[2],4)}</div><div style="color:#FFF">${en(p[3],4)}</div><div class="${cls2}">${en(p[4],3)}$</div><div class="${cls}">${en(p[5],2)}%</div></div>` } document.getElementById('plist').innerHTML=h||'<div style="padding:10px;text-align:center;color:#D4AF3760">⏳ BINANCE يطحن...</div>'; let dl=''; for(const p of d.doctor_positions){ let cls=colorClass(p[5]); let invoice=en(p[8],2); let target=en(p[8]*0.60,2); let profitCls=colorClass(p[4]); dl+=`<div class="rw" style="grid-template-columns:1fr 1fr 0.6fr 0.6fr 0.6fr 0.8fr 0.6fr;background:#0E1E2E"><div><span class="badge" style="background:#D4AF37;color:#000">${p[0]}</span></div><div style="color:#FACC15;font-weight:800">${p[9]}</div><div style="color:#FB923C">${invoice}$</div><div style="color:#00FF88">${target}$</div><div class="${profitCls}">${en(p[4],3)}$</div><div class="${cls}" style="font-size:11px">${p[6]}</div><div><span class="badge" style="background:${(p[10]||'TV').includes('TRADINGVIEW')?'#22D3EE':'#D4AF37'};color:#000;font-size:8px">${(p[10]||'TV').substring(0,3)}</span></div></div>` } document.getElementById('dlist').innerHTML=dl||'<div style="padding:10px;text-align:center;background:#0E1E2E;color:#D4AF37">👑 0/30 فخامة ✅</div>'; let t=''; for(const p of d.treatment){ let loss='-'+en(p[8],2)+'$'; let tgt=en(p[9],4); t+=`<div class="rw" style="grid-template-columns:1fr 1.2fr 0.6fr 0.6fr 0.6fr 0.6fr;background:#1A1500"><div><span class="badge" style="background:#FB923C;color:#000">${p[0]}</span></div><div style="color:#D4AF37;font-size:11px">${p[7]}</div><div class="profit-neg">${loss}</div><div style="color:#FFD700">${tgt}</div><div>${en(p[3],4)}</div><div class="profit-neg">5%</div></div>` } document.getElementById('tlist').innerHTML=t||'<div style="padding:10px;text-align:center;background:#1A1500;color:#10B981">👑 0/30 فاضي ✅</div>'; }catch(e){} }
+// منع التحديث التلقائي يخرب الكتابة + تحويل عربي لإنجليزي فوري
+document.querySelectorAll('input').forEach(inp=>{
+  inp.addEventListener('input',()=>enforceEnglish(inp));
+  inp.addEventListener('focus',()=>{inp.dataset.editing='1';});
+  inp.addEventListener('blur',()=>{delete inp.dataset.editing; save();});
+});
+setInterval(load,1200); load();</script></body></html>"""
 
 if __name__=="__main__":
     app.run(host="0.0.0.0",port=int(os.environ.get("PORT",8080)))
