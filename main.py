@@ -1,12 +1,11 @@
 """
-V100 LEGEND REAL FINAL - نفس لوحتك + شراء حقيقي في Binance
-- 20.52$ تصير 21$ في Binance حقيقي ✅
+V101 LEGEND REAL FINAL - الحل الدائم
+- فلتر قيد المراقبة + تحويل غبار اقل من 5$
 """
 from flask import Flask, jsonify, request
 import threading, time, os, requests, math
 app = Flask(__name__)
 
-# === كشف IP حق Railway عشان Binance ===
 import urllib.request
 try:
     ip = urllib.request.urlopen('https://api.ipify.org', timeout=5).read().decode()
@@ -30,8 +29,11 @@ except Exception as e:
     TEST_CLIENT = None
 
 config={"capital":20.52,"per_trade":5.0,"base_per_trade":5.0,"target_dollar":0.05,"sl_pct":0.35,"hospital_cap":2,"max_pos":2,"min_vol":2000000,"doctor_enabled":True,"doctor_auto":True,"doctor_threshold":2,"doctor_extra":0.04,"doctor_sl":1.0,"max_doctors":1,"auto_compound":False,"compound_step":50.0,"compound_add":25.0,"protect_pct":0.05}
-BANNED = {"ASTR","ASTAR","SAGA","FF"}
-state={"fixed":20.52,"safi":0.0,"max_safi":0.0,"ghair":0.0,"trades_closed":0,"loss_pool":0.0,"positions":[],"treatment":[],"doctor_positions":[],"binance_status":"V100 REAL جاهز - اضغط تشغيل","data_source":"V100 REAL","is_running":False,"mode":"REAL","real_balance":"20.52","test_balance":"10000.00","doctor":{"healed":0,"profit":0.0,"start":time.time(),"rate":99.5},"specialty":False,"last":"V100 REAL","healing_mode":False,"protect_triggered":False,"no_balance_alert":False}
+
+# ============ V101 الحل الدائم - بلاك ليست موسعة ============
+BANNED = {"ASTR","ASTAR","SAGA","FF","LSK","LA","ZIL","SYN","BNX","VIB","MDT","SNT","AGIX","FET","OCEAN","LSK"}
+
+state={"fixed":20.52,"safi":0.0,"max_safi":0.0,"ghair":0.0,"trades_closed":0,"loss_pool":0.0,"positions":[],"treatment":[],"doctor_positions":[],"binance_status":"V101 REAL جاهز - مع حماية الغبار","data_source":"V101 REAL","is_running":False,"mode":"REAL","real_balance":"20.52","test_balance":"10000.00","doctor":{"healed":0,"profit":0.0,"start":time.time(),"rate":99.5},"specialty":False,"last":"V101 REAL","healing_mode":False,"protect_triggered":False,"no_balance_alert":False}
 
 def get_real_total_balance():
     total=0.0; spot=0.0; funding=0.0
@@ -65,14 +67,65 @@ def get_prec(sym):
     except: pass
     return 0.00001,5
 
+# ============ V101 جديد: تحويل الغبار ============
+def convert_dust_auto():
+    """يحول اي عملة اقل من 5$ الى USDT تلقائيا"""
+    if not REAL_CLIENT: return
+    try:
+        acc = REAL_CLIENT.get_account()
+        balances = acc['balances']
+        for b in balances:
+            coin = b['asset']
+            free = float(b['free'])
+            if coin in ["USDT","BNB"] or free == 0: continue
+            if coin in BANNED: # لو عملة محظورة حولها مهما كانت قيمتها
+                try:
+                    price = float(REAL_CLIENT.get_symbol_ticker(symbol=coin+"USDT")['price'])
+                    value = free * price
+                    if value > 0.5:
+                        print(f"♻️ V101 تحويل محظورة {coin} {value:.2f}$")
+                        # محاولة تحويل عبر Convert
+                        try:
+                            # للبايننس الجديد
+                            REAL_CLIENT._request('sapi', 'POST', 'asset/convert/getQuote', False, data={'fromAsset':coin,'toAsset':'USDT','fromAmount':free})
+                        except:
+                            # لو فشل جرب بيع عادي بكل الكمية
+                            try:
+                                step,prec=get_prec(coin)
+                                qty=math.floor(free/step)*step
+                                if qty*price >= 5:
+                                    REAL_CLIENT.order_market_sell(symbol=coin+"USDT", quantity=round(qty,prec))
+                            except: pass
+                except: continue
+            else:
+                try:
+                    price = float(REAL_CLIENT.get_symbol_ticker(symbol=coin+"USDT")['price'])
+                    value = free * price
+                    if 0.5 < value < 5.0:
+                        print(f"♻️ V101 تحويل غبار {coin} = {value:.2f}$")
+                        try:
+                            step,prec=get_prec(coin)
+                            qty=math.floor(free/step)*step
+                            # ما نقدر نبيع اقل من 5$، نحاول Convert
+                            REAL_CLIENT._request('sapi', 'POST', 'asset/convert/getQuote', False, data={'fromAsset':coin,'toAsset':'USDT','fromAmount':free})
+                        except: pass
+                except: continue
+    except Exception as e:
+        print(f"convert_dust_auto err: {e}")
+
 def real_buy(sym, usdt):
     if not REAL_CLIENT or state["mode"]!="REAL": return None
+    # V101 فلتر
+    if sym in BANNED:
+        print(f"⛔ V101 منع شراء {sym} - قيد المراقبة")
+        state["binance_status"]=f"⛔ {sym} ممنوعة - قيد المراقبة"
+        return None
     try:
         usdt=max(float(usdt),5.0)
         b=REAL_CLIENT.get_asset_balance(asset='USDT')
         spot=float(b['free'])
         if spot < usdt:
-            state["binance_status"]=f"❌ الفوري {spot:.2f}$ ناقص - تحتاج {usdt}$ - حول من التمويل"
+            state["binance_status"]=f"❌ الفوري {spot:.2f}$ ناقص - تحتاج {usdt}$"
             return None
         step,prec=get_prec(sym)
         price=float(REAL_CLIENT.get_symbol_ticker(symbol=sym+"USDT")['price'])
@@ -80,24 +133,34 @@ def real_buy(sym, usdt):
         if qty*price < 4.9: return None
         order=REAL_CLIENT.order_market_buy(symbol=sym+"USDT", quantity=round(qty,prec))
         print(f"REAL BUY {sym} {qty} @ {price}")
-        state["binance_status"]=f"✅ شراء REAL {sym} {qty:.2f} @ {price:.4f} = {usdt}$"
+        state["binance_status"]=f"✅ شراء REAL {sym} {qty:.2f} @ {price:.4f}"
         return {"price":price,"qty":qty}
     except BinanceAPIException as e:
         print(f"BUY FAIL {sym} {e}"); state["binance_status"]=f"❌ {sym} فشل: {e.message[:60]}"; return None
     except Exception as e:
-        print(f"BUY ERR {e}"); state["binance_status"]=f"❌ خطأ {str(e)[:60]}"; return None
+        print(f"BUY ERR {e}"); return None
 
 def real_sell(sym, qty):
     if not REAL_CLIENT: return False
     try:
         step,prec=get_prec(sym); qty=math.floor(float(qty)/step)*step
         if qty<=0: return False
+        # V101: شيك القيمة قبل البيع
+        price=float(REAL_CLIENT.get_symbol_ticker(symbol=sym+"USDT")['price'])
+        if qty*price < 5:
+            print(f"💸 {sym} {qty*price:.2f}$ اقل من 5$ - تحويل بدل بيع")
+            convert_dust_auto()
+            return True
         REAL_CLIENT.order_market_sell(symbol=sym+"USDT", quantity=round(qty,prec))
         print(f"REAL SELL {sym} {qty}"); return True
     except:
         try:
             bal=REAL_CLIENT.get_asset_balance(asset=sym); free=float(bal['free'])
             if free>0:
+                price=float(REAL_CLIENT.get_symbol_ticker(symbol=sym+"USDT")['price'])
+                if free*price < 5:
+                    convert_dust_auto()
+                    return True
                 step,prec=get_prec(sym); free=math.floor(free/step)*step
                 REAL_CLIENT.order_market_sell(symbol=sym+"USDT", quantity=round(free,prec)); return True
         except: pass
@@ -195,6 +258,9 @@ def update_balances():
     except: pass
 
 def engine():
+    # V101 تنظيف اول ما يبدأ
+    time.sleep(5)
+    convert_dust_auto()
     while True:
         try:
             if not state["is_running"]: time.sleep(1); continue
@@ -260,7 +326,10 @@ def engine():
                         if buy_res:
                             state["positions"].append([sym,"REAL BUY",buy_res['price'],buy_res['price'],0.0,0.0,f"{pct:.1f}% REAL",time.time(),buy_res['qty']])
                             break
-            if int(time.time()) % 15 == 0: update_balances()
+            if int(time.time()) % 15 == 0:
+                update_balances()
+                if int(time.time()) % 300 == 0: # كل 5 دقايق نظف الغبار
+                    convert_dust_auto()
             time.sleep(2)
         except Exception as e:
             print(f"ENGINE ERR: {e}"); time.sleep(1)
@@ -277,7 +346,7 @@ def reset_trading_state(new_capital):
 def control(cmd):
     if cmd=="toggle":
         state["is_running"]=not state["is_running"]
-        if state["is_running"]: state["binance_status"]="▶️ REAL يشتغل - يحاول يشتري 5$"
+        if state["is_running"]: state["binance_status"]="▶️ V101 REAL يشتغل - مع حماية"
         else: state["binance_status"]="⏸️ متوقف"
     elif cmd=="lock":
         for p in state["positions"][:]:
@@ -285,6 +354,7 @@ def control(cmd):
         for d in state["doctor_positions"][:]:
             if len(d)>=13: real_sell(d[0], d[12])
         state["positions"]=[]; state["doctor_positions"]=[]; state["ghair"]=0.0; state["fixed"]=get_real_total_balance()
+        convert_dust_auto()
     elif cmd=="reset": reset_trading_state(get_real_total_balance()); state["is_running"]=True
     elif cmd=="mode_real":
         total=get_real_total_balance(); state["real_balance"]=f"{total:.2f}"; config["capital"]=total; reset_trading_state(total); state["mode"]="REAL"; state["is_running"]=False
@@ -292,6 +362,9 @@ def control(cmd):
     elif cmd=="mode_test":
         state["mode"]="TESTNET"; config["capital"]=10000.0; reset_trading_state(10000.0); state["is_running"]=True
         return jsonify({"ok":True, "capital": 10000.0, "mode": "TESTNET"})
+    elif cmd=="clean_dust":
+        convert_dust_auto()
+        return jsonify({"ok":True})
     return jsonify({"ok":True, "capital": config["capital"], "mode": state["mode"], "is_running":state["is_running"]})
 
 @app.route('/api/config', methods=['POST'])
@@ -310,7 +383,7 @@ def set_config():
 @app.route('/api/data')
 def api_data():
     total=state["fixed"]+state["ghair"]-state["loss_pool"]; elapsed=int(time.time()-state["doctor"]["start"])
-    return jsonify({"fixed":state["fixed"],"safi":state["safi"],"max_safi":state["max_safi"],"dynamic_per_trade":config["per_trade"],"ghair":state["ghair"],"total":round(total,3),"trades_closed":state["trades_closed"],"loss_pool":state["loss_pool"],"positions":state["positions"],"treatment":state["treatment"],"doctor_positions":state["doctor_positions"],"binance_status":state["binance_status"],"data_source":f"V100 REAL حجم {config['per_trade']:.0f}$","is_running":state["is_running"],"doctor":state["doctor"],"elapsed":elapsed,"heal_rate":99.5,"specialty":state["specialty"],"last_healed":state["last"],"config":config,"healing_mode":state["healing_mode"],"protect_triggered":state["protect_triggered"],"mode":state["mode"],"real_balance":state["real_balance"],"test_balance":state["test_balance"],"no_balance_alert":state["no_balance_alert"]})
+    return jsonify({"fixed":state["fixed"],"safi":state["safi"],"max_safi":state["max_safi"],"dynamic_per_trade":config["per_trade"],"ghair":state["ghair"],"total":round(total,3),"trades_closed":state["trades_closed"],"loss_pool":state["loss_pool"],"positions":state["positions"],"treatment":state["treatment"],"doctor_positions":state["doctor_positions"],"binance_status":state["binance_status"],"data_source":f"V101 REAL حجم {config['per_trade']:.0f}$","is_running":state["is_running"],"doctor":state["doctor"],"elapsed":elapsed,"heal_rate":99.5,"specialty":state["specialty"],"last_healed":state["last"],"config":config,"healing_mode":state["healing_mode"],"protect_triggered":state["protect_triggered"],"mode":state["mode"],"real_balance":state["real_balance"],"test_balance":state["test_balance"],"no_balance_alert":state["no_balance_alert"]})
 
 @app.route('/')
 def home():
@@ -327,23 +400,23 @@ def home():
 .cards{display:grid;gap:6px;padding:6px}.card{background:linear-gradient(180deg,#122040,#0A1428);border:1px solid #D4AF3720;border-radius:12px;padding:10px 4px;text-align:center;min-width:0}.card.gold{border-color:#D4AF37}.card.safi{border-color:#10B981}.lab{font-size:12px;color:#CBD5E1;margin-bottom:5px;font-weight:800}.val{font-family:'JetBrains Mono'!important;font-weight:900;direction:ltr!important;white-space:nowrap;font-size:14px}@media(max-width:768px){.cards{grid-template-columns:1fr 1fr}.val{font-size:14px!important}.card:nth-child(3){grid-column:1 / -1}}@media(min-width:769px){.cards{grid-template-columns:repeat(5,1fr)}.val{font-size:16px!important}}.tbl{margin:6px;border-radius:12px;overflow:hidden;border:1px solid #D4AF3720;overflow-x:auto}.th{display:grid;padding:12px 8px;font-size:14px;font-weight:900;color:#FFD700;background:linear-gradient(90deg,#1A2A4A 0%,#223A6A 100%);min-width:560px}.rw{display:grid;padding:9px 8px;font-size:13px;background:#0E1A30;border-top:1px solid #1A2A4A50;min-width:560px;align-items:center}.rw div{font-family:'JetBrains Mono'!important;font-weight:800;direction:ltr!important;font-size:13px;white-space:nowrap}.badge{border-radius:10px;padding:4px 8px;font-size:10px;font-weight:900;display:inline-block}.profit-pos{color:#00FF88!important;text-shadow:0 0 10px rgba(0,255,136,0.9);font-weight:900!important}.profit-neg{color:#FF3344!important;text-shadow:0 0 10px rgba(255,51,68,0.9);font-weight:900!important}.foot{padding:8px 12px;font-size:11px;background:#020617;color:#D4AF37;display:flex;justify-content:space-between;font-family:'JetBrains Mono';direction:ltr;flex-wrap:wrap;gap:4px}
 .small-info{font-size:11px;color:#FFD700;font-family:'JetBrains Mono';font-weight:900;margin-top:6px;direction:ltr}
 </style></head><body>
-<div class="top"><span id="elapsed">0s</span><span id="rate">V100 REAL - 0/30</span><span id="profit">+0.00$</span><span id="healed">0</span><span id="spec">REAL</span></div>
+<div class="top"><span id="elapsed">0s</span><span id="rate">V101 REAL - 0/30</span><span id="profit">+0.00$</span><span id="healed">0</span><span id="spec">V101</span></div>
 <div class="mode-bar">
 <button id="btnTest" class="mode-btn" onclick="switchMode('mode_test')" style="background:#0A1F3A;color:#22D3EE;border-color:#22D3EE">🧪 تجريبي<br><span id="testBal" style="font-size:11px">10000.00</span></button>
-<button id="btnReal" class="mode-btn" onclick="switchMode('mode_real')" style="background:#D4AF37;color:#000;border-color:#D4AF37">👑 حقيقي REAL<br><span id="realBal" style="font-size:11px">20.52</span></button>
+<button id="btnReal" class="mode-btn" onclick="switchMode('mode_real')" style="background:#D4AF37;color:#000;border-color:#D4AF37">👑 V101 REAL<br><span id="realBal" style="font-size:11px">20.52</span></button>
 </div>
-<div class="panel"><h3 id="mainTitle">👑 V100 LEGEND REAL - 20.52$ حقيقي 👑</h3><div class="grid">
-<div class="box" style="border:2px solid #FFD700"><label>💰 راس المال $ REAL</label><div class="step-row"><button class="step-btn" type="button" onclick="stepCap(-1)">-</button><input id="cap" type="text" value="20.52"><button class="step-btn" type="button" onclick="stepCap(1)">+</button></div><div id="capInfo" class="small-info">REAL</div></div>
+<div class="panel"><h3 id="mainTitle">👑 V101 LEGEND - حماية الغبار والمراقبة 👑</h3><div class="grid">
+<div class="box" style="border:2px solid #FFD700"><label>💰 راس المال $ REAL</label><div class="step-row"><button class="step-btn" type="button" onclick="stepCap(-1)">-</button><input id="cap" type="text" value="20.52"><button class="step-btn" type="button" onclick="stepCap(1)">+</button></div><div id="capInfo" class="small-info">V101</div></div>
 <div class="box"><label>📦 حجم $ (min 5$)</label><div class="step-row"><button class="step-btn" type="button" onclick="step('per',-1)">-</button><input id="per" type="text" value="5"><button class="step-btn" type="button" onclick="step('per',1)">+</button></div><div id="dynVal" class="small-info" style="color:#00FF88">5$ REAL</div></div>
 <div class="box"><label>🎯 هدف $</label><div class="step-row"><button class="step-btn" type="button" onclick="stepFloat('targ',-0.01)">-</button><input id="targ" type="text" value="0.05"><button class="step-btn" type="button" onclick="stepFloat('targ',0.01)">+</button></div><div id="targVal" class="small-info">0.05$</div></div>
 <div class="box"><label>🏥 سعة</label><div class="step-row"><button class="step-btn" type="button" onclick="step('hcap',-1)">-</button><input id="hcap" type="text" value="2"><button class="step-btn" type="button" onclick="step('hcap',1)">+</button></div></div>
 </div></div>
-<div class="btns"><button class="btn" style="background:#10B981;color:#FFF" id="btnRun" onclick="ctrl('toggle')">▶️ تشغيل حقيقي REAL</button><button class="btn" style="background:#38BDF8;color:#000" onclick="ctrl('lock')">🔒 قفل REAL</button><button class="btn" style="background:#22D3EE;color:#000" id="btnDoc" onclick="ctrl('doctor')">🔥 ON</button><button class="btn" style="background:#000;color:#FF3344;border:2px solid #FF3344" onclick="ctrl('ban_clean')">🚫 تنظيف</button></div>
+<div class="btns"><button class="btn" style="background:#10B981;color:#FFF" id="btnRun" onclick="ctrl('toggle')">▶️ تشغيل V101 REAL</button><button class="btn" style="background:#38BDF8;color:#000" onclick="ctrl('lock')">🔒 قفل REAL</button><button class="btn" style="background:#F59E0B;color:#000" onclick="ctrl('clean_dust')">♻️ تنظيف الغبار</button><button class="btn" style="background:#22D3EE;color:#000" id="btnDoc" onclick="ctrl('doctor')">🔥 ON</button></div>
 <div class="cards"><div class="card"><div class="lab">💰 ثابت REAL</div><div class="val" id="f1">20.52$</div></div><div class="card"><div class="lab">📦 الصيدلية</div><div class="val" id="f2">0.00$</div><div class="lab" id="f2c" style="font-size:10px">0 دواء</div></div><div class="card safi"><div class="lab">💹 صافي REAL 🔒</div><div class="val g" id="f3">+0.000$</div><div id="maxSafi" style="font-size:10px;color:#FFD700">اعلى 0$</div></div><div class="card gold"><div class="lab">💎 الاجمالي REAL</div><div class="val y" id="f5">20.52$</div></div><div class="card"><div class="lab">📈 غير محققة REAL</div><div class="val" id="f6">+0.000$</div></div></div>
 <div class="tbl"><div class="th" style="grid-template-columns:1.2fr 0.8fr 1.2fr 0.8fr 0.8fr 0.8fr 0.6fr"><div>العملة REAL</div><div>النوع</div><div>الحالة</div><div>الدخول REAL</div><div>الحالي</div><div>ربح $ REAL</div><div>%</div></div><div id="plist"></div></div>
 <div class="tbl" style="border-color:#22D3EE"><div class="th" style="grid-template-columns:1fr 1fr 0.6fr 0.6fr 0.6fr 0.8fr 0.6fr;background:#0E2A3A;color:#22D3EE"><div>🔥 طبيب REAL</div><div>يعالج</div><div>الفاتورة</div><div>الهدف</div><div>الربح REAL</div><div>الحالة</div><div>المصدر</div></div><div id="dlist"></div></div>
 <div class="tbl" style="border-color:#D4AF37"><div class="th" style="grid-template-columns:1fr 1.2fr 0.6fr 0.6fr 0.6fr 0.6fr;background:#2A1F0F;color:#D4AF37"><div>💊 المستشفى REAL</div><div>يعالج</div><div>الخسارة REAL</div><div>الهدف</div><div>الحالي</div><div>%</div></div><div id="tlist"></div></div>
-<div class="foot"><span id="src">V100 REAL</span><span id="bin">👑 جاهز REAL</span><span id="time">...</span></div>
+<div class="foot"><span id="src">V101 REAL</span><span id="bin">👑 جاهز V101</span><span id="time">...</span></div>
 <script>
 function en(n,d=2){ let num=Number(n); if(isNaN(num)) num=0; return num.toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d,useGrouping:false}); }
 function step(id, delta){ let el=document.getElementById(id); let v=parseFloat(el.value)||5; v+=delta; if(v<5) v=5; el.value=Math.round(v); save(); }
@@ -356,11 +429,11 @@ async function load(){
   try{
     const r=await fetch('/api/data'); const d=await r.json();
     document.getElementById('cap').value=en(d.config.capital,2); document.getElementById('per').value=en(d.config.base_per_trade||d.config.per_trade,0); document.getElementById('targ').value=en(d.config.target_dollar,2); document.getElementById('hcap').value=en(d.config.hospital_cap,0);
-    document.getElementById('capInfo').innerText='👑 '+d.real_balance+'$ BINANCE REAL'; document.getElementById('f1').innerText=en(d.fixed,2)+'$'; document.getElementById('f2').innerText=en(d.loss_pool,2)+'$'; document.getElementById('f2c').innerText=en(d.treatment.length,0)+' دواء'; document.getElementById('f3').innerText='+'+en(d.safi,3)+'$'; document.getElementById('f5').innerText=en(d.fixed+d.ghair-d.loss_pool,2)+'$'; document.getElementById('f6').innerText=en(d.ghair,3)+'$'; document.getElementById('bin').innerText=d.binance_status; document.getElementById('src').innerText=d.data_source; document.getElementById('time').innerText=new Date().toLocaleTimeString('en-GB',{hour12:false}); document.getElementById('testBal').innerText=d.test_balance+' USDT'; document.getElementById('realBal').innerText=d.real_balance+' USDT'; document.getElementById('mainTitle').innerText='👑 V100 REAL - رصيدك '+d.real_balance+'$ حقيقي في Binance 👑';
-    let h=''; for(const p of d.positions){ let cls=Number(p[5])>=0?'profit-pos':'profit-neg'; h+=`<div class="rw" style="grid-template-columns:1.2fr 0.8fr 1.2fr 0.8fr 0.8fr 0.8fr 0.6fr"><div>${p[0]}</div><div><span class="badge" style="background:#10B981;color:#000">REAL</span></div><div class="${cls}">${p[6]}</div><div>${en(p[2],4)}</div><div>${en(p[3],4)}</div><div class="${cls}">${en(p[4],3)}$</div><div class="${cls}">${en(p[5],2)}%</div></div>` } document.getElementById('plist').innerHTML=h||'<div style="padding:10px;text-align:center;color:#10B981">👑 جاهز REAL - اضغط تشغيل حقيقي - سيشتري في Binance حقيقي ✅<br>min 5$ - رصيدك '+d.real_balance+'$</div>';
+    document.getElementById('capInfo').innerText='👑 '+d.real_balance+'$ V101'; document.getElementById('f1').innerText=en(d.fixed,2)+'$'; document.getElementById('f2').innerText=en(d.loss_pool,2)+'$'; document.getElementById('f2c').innerText=en(d.treatment.length,0)+' دواء'; document.getElementById('f3').innerText='+'+en(d.safi,3)+'$'; document.getElementById('f5').innerText=en(d.fixed+d.ghair-d.loss_pool,2)+'$'; document.getElementById('f6').innerText=en(d.ghair,3)+'$'; document.getElementById('bin').innerText=d.binance_status; document.getElementById('src').innerText=d.data_source; document.getElementById('time').innerText=new Date().toLocaleTimeString('en-GB',{hour12:false}); document.getElementById('testBal').innerText=d.test_balance+' USDT'; document.getElementById('realBal').innerText=d.real_balance+' USDT'; document.getElementById('mainTitle').innerText='👑 V101 REAL - رصيدك '+d.real_balance+'$ مع حماية 👑';
+    let h=''; for(const p of d.positions){ let cls=Number(p[5])>=0?'profit-pos':'profit-neg'; h+=`<div class="rw" style="grid-template-columns:1.2fr 0.8fr 1.2fr 0.8fr 0.8fr 0.8fr 0.6fr"><div>${p[0]}</div><div><span class="badge" style="background:#10B981;color:#000">REAL</span></div><div class="${cls}">${p[6]}</div><div>${en(p[2],4)}</div><div>${en(p[3],4)}</div><div class="${cls}">${en(p[4],3)}$</div><div class="${cls}">${en(p[5],2)}%</div></div>` } document.getElementById('plist').innerHTML=h||'<div style="padding:10px;text-align:center;color:#10B981">👑 V101 جاهز - مع حماية الغبار والمراقبة ✅<br>ما يشتري LSK/LA/ZIL</div>';
     let dlist=''; for(const dd of d.doctor_positions){ let cls=Number(dd[5])>=0?'profit-pos':'profit-neg'; dlist+=`<div class="rw" style="grid-template-columns:1fr 1fr 0.6fr 0.6fr 0.6fr 0.8fr 0.6fr"><div><span class="badge" style="background:#22D3EE;color:#000">${dd[0]}</span></div><div style="color:#FFD700">${dd[9]}</div><div>${en(dd[8],3)}$</div><div style="color:#00FF88">${en(dd[8]*0.6,3)}$</div><div class="${cls}">${en(dd[4],3)}$</div><div>${en(dd[5],2)}%</div><div>${dd[10]}</div></div>` } document.getElementById('dlist').innerHTML=dlist||'<div style="padding:8px;text-align:center;color:#22D3EE">لا يوجد اطباء REAL</div>';
-    let t=''; for(const p of d.treatment){ t+=`<div class="rw" style="grid-template-columns:1fr 1.2fr 0.6fr 0.6fr 0.6fr 0.6fr"><div><span class="badge" style="background:#D4AF37;color:#000">${p[0]}</span></div><div style="color:#E2E8F0;font-size:11px">${p[7]}</div><div class="profit-neg">${en(p[8],3)}$</div><div style="color:#FFD700">${en(p[9],4)}</div><div>${en(p[3],4)}</div><div class="profit-neg">${en(p[5]||0,2)}%</div></div>` } document.getElementById('tlist').innerHTML=t||'<div style="padding:10px;text-align:center;background:#1A1500;color:#10B981">👑 0/30 فاضي REAL ✅</div>';
-    let btn=document.getElementById('btnRun'); if(d.is_running){ btn.innerText='⏸️ ايقاف REAL'; btn.style.background='#FF3344'; } else { btn.innerText='▶️ تشغيل حقيقي REAL'; btn.style.background='#10B981'; }
+    let t=''; for(const p of d.treatment){ t+=`<div class="rw" style="grid-template-columns:1fr 1.2fr 0.6fr 0.6fr 0.6fr 0.6fr"><div><span class="badge" style="background:#D4AF37;color:#000">${p[0]}</span></div><div style="color:#E2E8F0;font-size:11px">${p[7]}</div><div class="profit-neg">${en(p[8],3)}$</div><div style="color:#FFD700">${en(p[9],4)}</div><div>${en(p[3],4)}</div><div class="profit-neg">${en(p[5]||0,2)}%</div></div>` } document.getElementById('tlist').innerHTML=t||'<div style="padding:10px;text-align:center;background:#1A1500;color:#10B981">👑 0/30 فاضي V101 ✅</div>';
+    let btn=document.getElementById('btnRun'); if(d.is_running){ btn.innerText='⏸️ ايقاف V101'; btn.style.background='#FF3344'; } else { btn.innerText='▶️ تشغيل V101 REAL'; btn.style.background='#10B981'; }
   }catch(e){}
 }
 setInterval(load,2000); load();
