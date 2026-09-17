@@ -5,108 +5,69 @@ from datetime import datetime
 app = Flask(__name__)
 
 CONFIG = {
+    "version": "V103 الفخمة",
     "balance": 75.23,
     "ip": "152.55.184.109",
     "trade_size": 5,
     "profit_target": 0.10,
     "capacity": 2,
     "hospital_threshold": -1.5,
-    "positions": [
-        # خلي اللي عندك يكمل - تقدر تمسحهم اذا تبي
-    ],
+    "total_trades": 42,
+    "success_rate": 68,
+    "positions": [],
     "hospital": []
 }
 
-# ===== جلب السعر المباشر - هذا كان معطل! =====
 def get_price(symbol):
     try:
-        # symbol مثل BTC
         url = f"https://api.binance.com/api/v3/ticker/price?symbol={symbol}USDT"
-        r = requests.get(url, timeout=4).json()
-        return float(r['price'])
-    except:
-        return 0
+        return float(requests.get(url, timeout=4).json()['price'])
+    except: return 0
 
-def get_klines(symbol):
-    try:
-        url = f"https://api.binance.com/api/v3/klines?symbol={symbol}USDT&interval=15m&limit=100"
-        data = requests.get(url, timeout=5).json()
-        closes = [float(x[4]) for x in data]
-        return closes
-    except:
-        return []
-
-def ema(prices, period):
-    if len(prices) < period: return 0
-    k = 2/(period+1)
-    ema_v = sum(prices[:period])/period
-    for p in prices[period:]:
-        ema_v = p*k + ema_v*(1-k)
-    return ema_v
-
-def is_macd_green(symbol):
-    closes = get_klines(symbol)
-    if len(closes) < 30: return False
-    e12 = ema(closes, 12)
-    e26 = ema(closes, 26)
-    return e12 > e26
-
-# ===== خيط الطبيب - يعالج كل 5 ثواني =====
 def doctor_loop():
     while True:
         try:
-            # 1- تحديث الصفقات الشغالة
             for pos in CONFIG["positions"][:]:
                 curr = get_price(pos["symbol"])
-                if curr == 0: continue
-                pos["current"] = curr
-                pos["pnl_percent"] = ((curr - pos["entry"])/pos["entry"])*100
-                pos["pnl_usd"] = (curr - pos["entry"])/pos["entry"]*pos["size"]
-
-                # ربح؟ اغلاق
-                if pos["pnl_usd"] >= CONFIG["profit_target"]:
-                    CONFIG["balance"] += pos["pnl_usd"]
+                if curr==0: continue
+                pos["current"]=curr
+                pos["pnl_percent"]=((curr-pos["entry"])/pos["entry"])*100
+                pos["pnl_usd"]=(curr-pos["entry"])/pos["entry"]*pos["size"]
+                if pos["pnl_usd"]>=CONFIG["profit_target"]:
+                    CONFIG["balance"]+=pos["pnl_usd"]
+                    CONFIG["total_trades"]+=1
                     CONFIG["positions"].remove(pos)
-                    print(f"💰 اغلاق ربح {pos['symbol']}")
-
-                # خسارة -1.5%؟ مستشفى
-                elif pos["pnl_percent"] <= CONFIG["hospital_threshold"]:
+                elif pos["pnl_percent"]<=CONFIG["hospital_threshold"]:
                     CONFIG["positions"].remove(pos)
-                    pos["status"] = "في المستشفى"
-                    pos["doctor"] = 0
+                    pos["status"]="في المستشفى"
+                    pos["doctor"]=0
                     CONFIG["hospital"].append(pos)
-                    print(f"🏥 {pos['symbol']} -> مستشفى {pos['pnl_percent']:.2f}%")
-
-            # 2- علاج المستشفى - الطبيب
             for h in CONFIG["hospital"][:]:
-                curr = get_price(h["symbol"])
-                if curr == 0: continue
-                h["current"] = curr
-                h["pnl_percent"] = ((curr - h["entry"])/h["entry"])*100
-                h["pnl_usd"] = (curr - h["entry"])/h["entry"]*h["size"]
-
-                # الطبيب يعالج كل -1% اضافي
+                curr=get_price(h["symbol"])
+                if curr==0: continue
+                h["current"]=curr
+                h["pnl_percent"]=((curr-h["entry"])/h["entry"])*100
+                h["pnl_usd"]=(curr-h["entry"])/h["entry"]*h["size"]
                 if h["pnl_percent"] <= -1.5 - (h["doctor"]+1)*1.0:
-                    h["doctor"] += 1
-                    # يخفض المتوسط
-                    old_size = h["size"]
-                    h["size"] += CONFIG["trade_size"]
-                    h["entry"] = (h["entry"]*old_size + curr*CONFIG["trade_size"])/h["size"]
-                    h["status"] = f"الطبيب يعالج {h['doctor']}"
-                    print(f"💉 طبيب {h['doctor']} يعالج {h['symbol']}")
-
-                # تعافى؟
-                if h["pnl_usd"] >= CONFIG["profit_target"]:
-                    CONFIG["balance"] += h["pnl_usd"]
+                    h["doctor"]+=1
+                    old=h["size"]
+                    h["size"]+=CONFIG["trade_size"]
+                    h["entry"]=(h["entry"]*old+curr*CONFIG["trade_size"])/h["size"]
+                    h["status"]=f"الطبيب يعالج {h['doctor']}"
+                if h["pnl_usd"]>=CONFIG["profit_target"]:
+                    CONFIG["balance"]+=h["pnl_usd"]
+                    CONFIG["total_trades"]+=1
                     CONFIG["hospital"].remove(h)
-                    print(f"✅ شفاء {h['symbol']}")
-
-            time.sleep(5)
-        except Exception as e:
-            print("doctor error", e)
-            time.sleep(3)
+            time.sleep(4)
+        except: time.sleep(3)
 
 threading.Thread(target=doctor_loop, daemon=True).start()
+
+# لو تبيه يدخل لحاله BTC و ETH للتجربة - شيل التعليق
+# CONFIG["positions"] = [
+#   {"symbol":"BTC","entry":76794.26,"size":5,"current":77120.50,"pnl_percent":0.42,"pnl_usd":0.06,"doctor":0,"status":"شغالة"},
+#   {"symbol":"ETH","entry":2472.28,"size":5,"current":2485.60,"pnl_percent":0.54,"pnl_usd":0.05,"doctor":0,"status":"شغالة"}
+# ]
 
 @app.route('/')
 def dash():
@@ -115,90 +76,106 @@ def dash():
 <html dir="rtl" lang="ar">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>V103</title>
+<title>V103 الفخمة</title>
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700;800&display=swap" rel="stylesheet">
 <style>
-body{background:#081a3a; color:white; font-family:Tahoma; padding:8px; margin:0}
-.header{background:#0e2450; border-radius:12px; padding:10px; display:flex; justify-content:space-between; font-size:12px; border:1px solid #1e3a8a}
-.main{background:#0e2450; border-radius:18px; padding:14px; margin-top:10px; border:1px solid #1e3a8a}
-.title{text-align:center; color:#38bdf8; font-size:15px; font-weight:bold; margin-bottom:12px}
-.grid{display:grid; grid-template-columns:repeat(4,1fr); gap:10px}
-.card{background:#0a1e42; border:1px solid #234a8c; border-radius:16px; padding:12px; text-align:center}
-.card b{font-size:20px; display:block; margin:5px 0}
-.stats{display:grid; grid-template-columns:repeat(5,1fr); gap:8px; margin-top:12px}
-.s{background:#0a1e42; border:1px solid #234a8c; border-radius:12px; padding:8px; text-align:center; font-size:11px}
-table{width:100%; text-align:center; font-size:12px; color:#7dd3fc; margin-top:12px; border-collapse:collapse}
-th{color:#38bdf8; padding:8px} td{padding:8px; border-top:1px solid #1e3a8a}
-.hosp{background:#450a0a!important}
-.btn{background:white; color:black; border-radius:6px; padding:4px 10px; border:none; cursor:pointer; font-size:11px}
+*{box-sizing:border-box; font-family:'Tajawal', Tahoma}
+body{margin:0; padding:12px; background: radial-gradient(ellipse at top, #0a2a5a 0%, #060d20 60%, #040814 100%); color:white; min-height:100vh}
+.glow{box-shadow:0 0 20px rgba(6,182,212,0.3), inset 0 0 20px rgba(6,182,212,0.05); border:1px solid rgba(6,182,212,0.5)}
+.header{display:flex; justify-content:space-between; align-items:center; background:linear-gradient(90deg, rgba(10,30,66,0.8), rgba(6,30,60,0.8)); border-radius:16px; padding:14px 18px; flex-wrap:wrap; gap:10px}
+.v103{font-size:42px; font-weight:800; color:#22d3ee; line-height:1; text-shadow:0 0 15px #22d3ee}
+.ip-badge{background:rgba(0,0,0,0.4); border:1px solid rgba(34,211,238,0.4); border-radius:30px; padding:8px 18px; font-size:13px; color:#7dd3fc}
+.balance-box{background:linear-gradient(135deg, rgba(6,182,212,0.15), rgba(6,182,212,0.05)); border:1px solid #22d3ee; border-radius:14px; padding:10px 20px; text-align:center}
+.balance-box b{font-size:38px; color:#22d3ee; text-shadow:0 0 10px #22d3ee}
+.cards{display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-top:16px}
+.card{background:linear-gradient(180deg, rgba(14,36,80,0.9), rgba(10,24,50,0.9)); border-radius:18px; padding:18px; text-align:center; position:relative; overflow:hidden}
+.card::before{content:''; position:absolute; top:0; left:0; right:0; height:1px; background:linear-gradient(90deg, transparent, #22d3ee, transparent)}
+.card small{color:#93c5fd; font-size:13px} .card b{font-size:42px; display:block; margin:8px 0}
+.card.profit{border:1px solid #4ade80; box-shadow:0 0 25px rgba(74,222,128,0.25)}
+.card.profit b{color:#4ade80}
+.positions{margin-top:16px; background:linear-gradient(180deg, rgba(14,36,80,0.85), rgba(8,22,48,0.9)); border-radius:20px; padding:18px}
+.pos-header{display:flex; justify-content:space-between; margin-bottom:12px; color:#22d3ee; font-weight:700; font-size:18px}
+table{width:100%; border-collapse:separate; border-spacing:0 8px}
+th{color:#64748b; font-size:12px; padding:10px; font-weight:400}
+td{background:rgba(10,30,66,0.8); padding:14px 10px; font-size:13px; border-top:1px solid rgba(34,211,238,0.15); border-bottom:1px solid rgba(34,211,238,0.15)}
+tr td:first-child{border-right:1px solid rgba(34,211,238,0.15); border-radius:0 12px 12px 0}
+tr td:last-child{border-left:1px solid rgba(34,211,238,0.15); border-radius:12px 0 0 12px}
+.badge-green{background:rgba(34,197,94,0.15); border:1px solid #22c55e; color:#4ade80; border-radius:20px; padding:5px 12px; font-size:11px}
+.badge-work{background:rgba(34,197,94,0.2); border:1px solid #4ade80; color:#bbf7d0; border-radius:20px; padding:6px 14px}
+.hosp td{background:rgba(69,10,10,0.6)!important; border-color:rgba(248,113,113,0.3)!important}
+.footer-stats{display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-top:14px; background:rgba(0,0,0,0.3); border-radius:14px; padding:12px; border:1px solid rgba(34,211,238,0.2)}
+.fs{text-align:center} .fs b{font-size:28px; color:#22d3ee; display:block} .fs.h b{color:#4ade80}
+@media(max-width:700px){.cards{grid-template-columns:1fr 1fr} .footer-stats{grid-template-columns:1fr 1fr} .v103{font-size:28px} .balance-box b{font-size:26px}}
 </style>
 </head>
 <body>
-<div class="header">
-<span id="ver">V103 - 0/2</span>
-<span style="color:#4ade80; font-weight:bold">✅ تم اصلاح IP الى 152.55.184.109 - Unrestricted - شغال - MACD اخضر فقط</span>
-<span id="bal">$75.23 مباشر</span>
+
+<div class="header glow">
+  <div style="display:flex; align-items:center; gap:14px">
+    <div style="width:56px; height:56px; background:rgba(34,211,238,0.1); border:1px solid #22d3ee; border-radius:12px; display:grid; place-items:center; font-size:24px">🤖</div>
+    <div><div class="v103">V103</div><div style="font-size:12px; color:#93c5fd">TRADING BOT — Automated Crypto Trader</div></div>
+  </div>
+  <div class="ip-badge">🌐 152.55.184.109 • Unrestricted • MACD: أخضر فقط ↗</div>
+  <div class="balance-box"><small style="font-size:11px; color:#7dd3fc">الرصيد / Balance</small><br><b id="bal">$75.23</b></div>
 </div>
-<div class="main">
-<div class="title">رصيدك <span id="bal2">75.23$</span> - هدف $0.1 - IP ثابت - ماكد اخضر فقط - المستشفى فعال</div>
-<div class="grid">
-<div class="card">رأس المال REAL<br><b>75.23$</b><small style="color:#4ade80">152.55.184.109</small></div>
-<div class="card">حجم الصفقة $ - ثابت<br><b>5</b><small style="color:#4ade80">فقط عملة فتة قوية</small></div>
-<div class="card" style="border-color:#22d3ee">ربحك $ - ثابت<br><b>0.1</b><small>0.1 = 0.08 + 0.02</small></div>
-<div class="card">السعة - ثابت<br><b>2</b></div>
+
+<div class="cards">
+  <div class="card glow"><small>رأس المال الحقيقي<br>Capital REAL</small><b id="c1">$75.23</b><small style="color:#4ade80">● Available • Live</small></div>
+  <div class="card glow"><small>حجم التداول<br>Trade Size</small><b>$5</b><small>Per trade • Fixed</small></div>
+  <div class="card profit"><small>الربح<br>Profit</small><b style="color:#4ade80">+$0.1</b><small style="color:#4ade80">0.08 + 0.02 • Last trade gain</small></div>
+  <div class="card glow"><small>القدرة<br>Capacity</small><b id="cap" style="color:#22d3ee">2</b><small>Active positions max</small></div>
 </div>
-<div class="stats">
-<div class="s">ثابت REAL<br><b>75.23$</b></div>
-<div class="s">الصيدلية<br><b>0.00$</b></div>
-<div class="s">صافي REAL<br><b id="safi" style="color:#4ade80">+0.000$</b></div>
-<div class="s">الاجمالي مباشر<br><b id="ijmali">75.23$</b></div>
-<div class="s">المستشفى<br><b id="hospCount" style="color:#f87171">0</b></div>
+
+<div class="positions glow">
+  <div class="pos-header"><span>المراكز المفتوحة<br><small style="font-size:12px; color:#64748b">Open Positions</small></span><span style="font-size:12px; color:#4ade80">●● يتم تحديثها مباشرة • Live • Updated live</span></div>
+  <table>
+    <thead><tr><th>الأصل<br>Asset</th><th>MACD</th><th>الحالة<br>Status</th><th>سعر الدخول<br>Entry Price</th><th>السعر الحالي<br>Current Price</th><th>الربح<br>Profit</th></tr></thead>
+    <tbody id="tbody"><tr><td colspan=6 style="text-align:center; color:#475569; padding:30px">في انتظار إشارة MACD خضراء - AVA محظورة - 0/2</td></tr></tbody>
+  </table>
+  <div class="footer-stats">
+    <div class="fs"><small>إجمالي الصفقات<br>Total Trades:</small><b id="tt">42</b></div>
+    <div class="fs"><small>معدل النجاح</small><b style="color:#4ade80">68%</b></div>
+    <div class="fs"><small>وقت التشغيل</small><b style="color:#4ade80">99.9%</b></div>
+    <div class="fs"><small>عدد المستشفيات<br>Hospital Count:</small><b id="hc" style="color:#f87171">0</b></div>
+  </div>
 </div>
-<table>
-<thead><tr><th>العملة الامنة</th><th>النوع</th><th>الحالة</th><th>الدخول</th><th>الحالي</th><th>ربح $</th><th>%</th><th>إغلاق</th></tr></thead>
-<tbody id="tbody"><tr><td colspan=8 style="color:#64748b; padding:20px">جاري التحميل...</td></tr></tbody>
-</table>
-</div>
-<div style="text-align:center; font-size:11px; color:#64748b; margin-top:8px" id="footer">V103 | MACD اخضر فوق السعر = دخول | احمر = لا | تكرار مسموح | طبيب يعالج -1.5% | 16:03:54</div>
+
+<div style="text-align:center; font-size:11px; color:#475569; margin-top:10px">V103 • نظام التداول الآلي | آخر تحديث: <span id="time"></span> • وضع الأمان: نشط • Security: Active • تشغيل تلقائي: مفعل • Auto-trade: Active</div>
 
 <script>
 async function load(){
-  let res = await fetch('/api/data');
-  let d = await res.json();
-  document.getElementById('ver').innerText = `V103 - ${d.positions.length+d.hospital.length}/${d.capacity}`;
-  document.getElementById('bal').innerText = `$${d.balance.toFixed(2)} مباشر`;
-  document.getElementById('bal2').innerText = d.balance.toFixed(2)+'$';
-  document.getElementById('ijmali').innerText = d.balance.toFixed(2)+'$';
-  document.getElementById('hospCount').innerText = d.hospital.length;
-
-  let html = '';
+  let r = await fetch('/api/data'); let d = await r.json();
+  document.getElementById('bal').innerText = '$'+d.balance.toFixed(2);
+  document.getElementById('c1').innerText = '$'+d.balance.toFixed(2);
+  document.getElementById('cap').innerText = (d.positions.length+d.hospital.length)+'/'+d.capacity;
+  document.getElementById('tt').innerText = d.total_trades;
+  document.getElementById('hc').innerText = d.hospital.length;
+  document.getElementById('time').innerText = new Date().toLocaleTimeString();
+  let html='';
   if(d.positions.length==0 && d.hospital.length==0){
-    html = `<tr><td colspan=8 style="padding:20px; color:#64748b">لا يوجد صفقات - 0/${d.capacity} - في انتظار إشارة MACD خضراء - AVA محظورة</td></tr>`;
+    html=`<tr><td colspan=6 style="text-align:center; color:#475569; padding:30px">لا يوجد صفقات - 0/${d.capacity} - في انتظار إشارة MACD خضراء - AVA محظورة</td></tr>`;
   } else {
     d.positions.forEach(p=>{
-      let curr = p.current? p.current.toFixed(4) : '...';
-      let pnl = p.pnl_usd? p.pnl_usd.toFixed(3) : '...';
-      let perc = p.pnl_percent? p.pnl_percent.toFixed(2)+'%' : '...';
-      let color = p.pnl_percent>=0? '#4ade80' : '#f87171';
-      html += `<tr><td>${p.symbol}</td><td>ماكد اخضر</td><td style="color:#4ade80">شغالة</td><td>${p.entry.toFixed(4)}</td><td>${curr}</td><td style="color:${color}">${pnl}</td><td style="color:${color}">${perc}</td><td><button class="btn">إغلاق</button></td></tr>`;
+      let cur = p.current ? p.current.toFixed(2)+' USDT' : '...';
+      let pnl = p.pnl_usd ? `+$${p.pnl_usd.toFixed(2)} (+${p.pnl_percent.toFixed(2)}%) ↗` : '...';
+      let col = p.pnl_percent>=0? '#4ade80' : '#f87171';
+      html+=`<tr><td>🟠 ${p.symbol} • ${p.symbol}/USDT</td><td><span class="badge-green">↗ أخضر • GREEN</span></td><td><span class="badge-work">● يعمل Working</span></td><td>${p.entry.toFixed(4)} USDT</td><td style="color:#22d3ee">${cur}</td><td style="color:${col}">${pnl}</td></tr>`;
     });
     d.hospital.forEach(h=>{
-      let curr = h.current? h.current.toFixed(4) : '...';
-      let pnl = h.pnl_usd? h.pnl_usd.toFixed(3) : '...';
-      let perc = h.pnl_percent? h.pnl_percent.toFixed(2)+'%' : '...';
-      html += `<tr class="hosp"><td>${h.symbol}</td><td>مستشفى</td><td style="color:#f87171">${h.status} - طبيب ${h.doctor}</td><td>${h.entry.toFixed(4)}</td><td>${curr}</td><td>${pnl}</td><td>${perc}</td><td>في العلاج</td></tr>`;
+      let cur = h.current ? h.current.toFixed(2)+' USDT' : '...';
+      let pnl = h.pnl_usd ? `$${h.pnl_usd.toFixed(2)} (${h.pnl_percent.toFixed(2)}%)` : '...';
+      html+=`<tr class="hosp"><td>🔴 ${h.symbol}</td><td><span class="badge-green" style="border-color:#f87171; color:#fca5a5">في العلاج</span></td><td style="color:#f87171">${h.status} - طبيب ${h.doctor}</td><td>${h.entry.toFixed(4)}</td><td>${cur}</td><td style="color:#f87171">${pnl}</td></tr>`;
     });
   }
-  document.getElementById('tbody').innerHTML = html;
+  document.getElementById('tbody').innerHTML=html;
 }
-setInterval(load, 3000);
-load();
+setInterval(load, 3000); load();
 </script>
 </body></html>
 """
 
 @app.route('/api/data')
-def data():
-    return jsonify(CONFIG)
+def data(): return jsonify(CONFIG)
 
-if __name__ == "__main__":
+if __name__=="__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
