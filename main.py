@@ -1,104 +1,113 @@
-from flask import Flask, jsonify
-import os, threading, time, requests
+from flask import Flask
+import os
 from datetime import datetime
 
 app = Flask(__name__)
 
-# ====== إعدادات V102.8 آمن ======
 CONFIG = {
-    "version": "V102.8 آمن - 0/2",
     "balance": 75.23,
-    "target": 0.10,
-    "profit_fixed": 0.08,
-    "fee": 0.02,
-    "trade_size": 5,
-    "capacity": 2,
     "ip": "152.55.184.109",
-    "ip_status": "تم اصلاح IP الى 152.55.184.109 - Unrestricted - شغال ✅",
-    "blocked": "AVA - يحظر",
-    "thabet": 75.23,
-    "saydalia": 0.00,
-    "safi": 0.000,
-    "ijmali": 75.23,
-    "ghair": 0.000,
-    "spot": 75.23,
-    "is_running": True,
-    "positions": []  # فاضي لأن 0/2
+    "trade_size": 5,
+    "profit": 0.10,
+    "profit_net": 0.08,
+    "fee": 0.02,
+    "capacity": 2,
 }
-
-def get_price(symbol):
-    try:
-        url = f"https://api.binance.com/api/v3/ticker/price?symbol={symbol}USDT"
-        r = requests.get(url, timeout=5).json()
-        return float(r['price'])
-    except:
-        return 0
 
 @app.route('/')
 def dashboard():
     c = CONFIG
-    calc = f"{c['target']} = {c['profit_fixed']} + {c['fee']} = هدف"
     return f"""
 <!DOCTYPE html>
 <html dir="rtl" lang="ar">
 <head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>V102.8 آمن</title>
 <style>
-body{{background:#0a1931; color:white; font-family:Tahoma; margin:0; padding:8px}}
-.card{{background:#132a54; border:1px solid #1e4a8a; border-radius:16px; padding:12px; text-align:center}}
-.btn{{border:none; border-radius:20px; padding:10px 20px; font-weight:bold; cursor:pointer}}
-.top{{background:#11244a; border-radius:16px; padding:12px; display:flex; justify-content:space-between; font-size:13px; margin-bottom:10px}}
-.main{{background:#11244a; border-radius:20px; padding:15px; border:1px solid #1e4a8a}}
-.controls{{display:grid; grid-template-columns:repeat(4,1fr); gap:10px}}
-.box{{background:#0d1e3c; border:1px solid #2a5db0; border-radius:16px; padding:10px; position:relative}}
-.box b{{font-size:28px; display:block; margin:8px 0}}
-.plus{{position:absolute; left:8px; top:35%; background:#0a3a5a; border:none; color:#4fc3f7; border-radius:8px; width:30px; height:30px}}
-.minus{{position:absolute; right:8px; top:35%; background:#0a3a5a; border:none; color:#4fc3f7; border-radius:8px; width:30px; height:30px}}
-.stats{{display:grid; grid-template-columns:repeat(5,1fr); gap:8px; margin-top:15px}}
-.stat{{background:#132a54; border:1px solid #2a5db0; border-radius:14px; padding:10px; text-align:center; font-size:13px}}
+*{{box-sizing:border-box}}
+body{{background:#081a3a; color:white; font-family:Tahoma; margin:0; padding:8px}}
+.header{{background:#0e2450; border:1px solid #1e3a8a; border-radius:12px; padding:10px; display:flex; justify-content:space-between; font-size:12px; flex-wrap:wrap}}
+.main{{background:#0e2450; border:1px solid #1e3a8a; border-radius:18px; padding:14px; margin-top:10px}}
+.title{{text-align:center; color:#38bdf8; font-size:16px; margin-bottom:14px; font-weight:bold}}
+.grid{{display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:10px}}
+.card{{background:#0a1e42; border:1px solid #234a8c; border-radius:16px; padding:12px 8px; text-align:center; position:relative; min-width:0; overflow:hidden}}
+.card small{{font-size:11px; color:#93c5fd; display:block; white-space:nowrap}}
+.card b{{font-size:22px; display:block; margin:6px 0; white-space:nowrap; overflow:visible}}
+.btn-s{{position:absolute; left:6px; top:50%; transform:translateY(-50%); background:#12315f; color:#5eead4; border:1px solid #2a5db0; width:26px; height:26px; border-radius:8px; cursor:pointer}}
+.btn-m{{position:absolute; right:6px; top:50%; transform:translateY(-50%); background:#12315f; color:#5eead4; border:1px solid #2a5db0; width:26px; height:26px; border-radius:8px; cursor:pointer}}
+.green{{color:#4ade80; font-size:11px; display:block; margin-top:4px; word-break:break-all}}
+.actions{{text-align:center; margin:16px 0}}
+.btn-red{{background:#dc2626; color:white; border:none; border-radius:20px; padding:10px 18px; font-weight:bold; margin:2px}}
+.btn-blue{{background:#1e3a8a; color:#93c5fd; border:1px solid #3b82f6; border-radius:20px; padding:10px 18px; margin:2px}}
+.bottom{{display:grid; grid-template-columns:repeat(5,1fr); gap:8px; margin-top:10px}}
+.stat{{background:#0a1e42; border:1px solid #234a8c; border-radius:12px; padding:8px; text-align:center; font-size:11px}}
+.stat b{{font-size:14px}}
+@media(max-width:600px){{.grid{{grid-template-columns:1fr 1fr}} .bottom{{grid-template-columns:1fr 1fr 1fr}} .card b{{font-size:18px}}}}
 </style>
 </head>
 <body>
-<div class="top">
-  <span>${c['balance']} مباشر</span>
-  <span style="color:#4ade80; font-weight:bold">{c['ip_status']}</span>
-  <span>0/2 - {c['version']}</span>
+<div class="header">
+<span>0/2 - V102.8 آمن - 0/2</span>
+<span style="color:#4ade80; font-weight:bold">✅ تم اصلاح IP الى {c['ip']} - Unrestricted - شغال</span>
+<span>$75.23 مباشر</span>
 </div>
 
 <div class="main">
-  <h3 style="text-align:center; margin:5px; color:#7dd3fc">رصيدك ${c['balance']} - هدف ${c['target']} - IP ثابت - يحظر AVA</h3>
-  <div class="controls">
-    <div class="box"><small>رأس المال REAL</small><button class="plus">+</button><b>{c['balance']}</b><button class="minus">-</button><small style="color:#4ade80">{c['ip']} - كـمـيـتـر - {c['balance']}</small></div>
-    <div class="box"><small>حجم الصفقة $ - ثابت</small><button class="plus">+</button><b>{c['trade_size']}</b><button class="minus">-</button><small>فقط عملة فتة</small></div>
-    <div class="box" style="border-color:#22d3ee"><small>ربحك $ - ثابت</small><button class="plus">+</button><b>{c['profit_fixed']:.2f}</b><button class="minus">-</button><small style="color:#22d3ee">{calc}</small></div>
-    <div class="box"><small>السعة - ثابت</small><button class="plus">+</button><b>{c['capacity']}</b><button class="minus">-</button></div>
+<div class="title">رصيدك {c['balance']}$ - هدف {c['profit']}$ - IP ثابت - يحظر AVA</div>
+
+<div class="grid">
+  <div class="card">
+    <small>رأس المال REAL</small>
+    <button class="btn-s">+</button>
+    <b>{c['balance']}$</b>
+    <button class="btn-m">-</button>
+    <span class="green">{c['ip']} - كـمـيـتـر - {c['balance']}</span>
   </div>
-  <div style="text-align:center; margin-top:15px">
-    <button class="btn" style="background:#ef4444; color:white">إيقاف آمن V102.8</button>
-    <button class="btn" style="background:#1e3a8a; color:#93c5fd; margin-right:10px">إغلاق الكل</button>
+  <div class="card">
+    <small>حجم الصفقة $ - ثابت</small>
+    <button class="btn-s">+</button>
+    <b>{c['trade_size']}</b>
+    <button class="btn-m">-</button>
+    <span class="green">فقط عملة فتة</span>
   </div>
-  <div class="stats">
-    <div class="stat"><small>ثابت REAL</small><br><b>{c['thabet']}$</b></div>
-    <div class="stat"><small>الصيدلية</small><br><b>{c['saydalia']:.2f}$</b></div>
-    <div class="stat"><small>صافي REAL</small><br><b style="color:#4ade80">+{c['safi']:.3f}$</b></div>
-    <div class="stat"><small>الاجمالي مباشر</small><br><b>{c['ijmali']}$</b></div>
-    <div class="stat"><small>غير محققة</small><br><b>{c['ghair']:.3f}$</b></div>
+  <div class="card" style="border-color:#22d3ee">
+    <small>ربحك $ - ثابت</small>
+    <button class="btn-s">+</button>
+    <b>{c['profit']:.1f}</b>
+    <button class="btn-m">-</button>
+    <span class="green" style="color:#22d3ee">{c['profit']} = {c['profit_net']} + {c['fee']} = هدف</span>
   </div>
-  <div style="background:#0d1e3c; margin-top:12px; border-radius:12px; padding:10px">
-    <table style="width:100%; text-align:center; font-size:12px; color:#7dd3fc"><tr><th>العملة الآمنة</th><th>النوع</th><th>الحالة</th><th>الدخول</th><th>الحالي</th><th>ربح</th><th>%</th><th>إغلاق</th></tr>
-    <tr><td colspan="8" style="padding:20px; color:#475569">لا يوجد صفقات - 0/2 - في انتظار إشارة AVA</td></tr>
-    </table>
+  <div class="card">
+    <small>السعة - ثابت</small>
+    <button class="btn-s">+</button>
+    <b>{c['capacity']}</b>
+    <button class="btn-m">-</button>
   </div>
 </div>
-<div style="text-align:center; font-size:11px; color:#475569; margin-top:10px">V102.8 | IP {c['ip']} | {datetime.now().strftime('%H:%M:%S')} | يحدث من BINANCE</div>
-<script>setTimeout(()=>location.reload(),30000);</script>
-</body></html>
-"""
 
-@app.route('/api/status')
-def status():
-    return jsonify(CONFIG)
+<div class="actions">
+  <button class="btn-blue">إغلاق الكل</button>
+  <button class="btn-red">إيقاف آمن V102.8</button>
+</div>
+
+<div class="bottom">
+  <div class="stat"><small>ثابت REAL</small><br><b>{c['balance']}$</b></div>
+  <div class="stat"><small>الصيدلية</small><br><b>0.00$</b></div>
+  <div class="stat"><small>صافي REAL</small><br><b style="color:#4ade80">+0.000$</b></div>
+  <div class="stat"><small>الاجمالي مباشر</small><br><b>{c['balance']}$</b></div>
+  <div class="stat"><small>غير محققة</small><br><b>0.000$</b></div>
+</div>
+
+<div style="background:#0a1e42; border:1px solid #234a8c; border-radius:12px; padding:10px; margin-top:10px; font-size:11px">
+<table style="width:100%; text-align:center; color:#7dd3fc"><tr><th>العملة الامنة</th><th>النوع</th><th>الحالة</th><th>الدخول</th><th>الحالي</th><th>ربح</th><th>%</th><th>إغلاق</th></tr></table>
+<div style="text-align:center; color:#64748b; padding:15px">لا يوجد صفقات - 0/2 - في انتظار إشارة AVA</div>
+</div>
+
+</div>
+<div style="text-align:center; font-size:10px; color:#475569; margin-top:8px">V102.8 | IP {c['ip']} | {datetime.now().strftime('%H:%M:%S')} | BINANCE Unrestricted ✅</div>
+</body>
+</html>
+"""
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
