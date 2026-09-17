@@ -1,3 +1,12 @@
-flask
-ccxt
-requests
+Flask==2.3.3
+python-binance==1.0.19
+requests==2.31.0
+urllib3==2.0.4
+certifi==2023.7.22
+charset-normalizer==3.2.0
+idna==3.4
+pytz==2023.3
+six==1.16.0
+python-dateutil==2.8.2
+websockets==11.0.3
+aiohttp==3.8.5
