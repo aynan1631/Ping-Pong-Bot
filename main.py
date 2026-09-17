@@ -1,11 +1,24 @@
 import os, threading, time
 from flask import Flask, request, jsonify
-from binance.client import Client
+
+# يحاول يستورد بايننس ولو فشل ما يطيح البوت
+try:
+    from binance.client import Client
+except:
+    Client = None
 
 app = Flask(__name__)
+
 API_KEY = os.getenv("BINANCE_API_KEY")
 API_SECRET = os.getenv("BINANCE_API_SECRET")
-client = Client(API_KEY, API_SECRET) if API_KEY else None
+
+client = None
+if API_KEY and API_SECRET and Client:
+    try:
+        client = Client(API_KEY, API_SECRET)
+    except Exception as e:
+        print(f"Binance error: {e}")
+        client = None
 
 config = {
     "capital": 65.23,
@@ -27,8 +40,10 @@ def sync_binance():
                 config["capital"] = state["bal"]
                 if state["bal"]>0:
                     state["pct"] = round((state["realized"]/state["bal"]*100),2)
-        except: pass
+        except Exception as e:
+            print(f"sync error: {e}")
         time.sleep(5)
+
 threading.Thread(target=sync_binance,daemon=True).start()
 
 @app.route("/action",methods=["POST"])
@@ -42,10 +57,11 @@ def action():
 
 @app.route("/api")
 def api():
-    return jsonify({"state":state,"config":config})
+    return jsonify({"state":state,"config":config,"binance_connected": client is not None})
 
 @app.route("/")
 def home():
+    conn = "متصل Binance" if client else "غير متصل - حط المفاتيح في Variables"
     return f"""
 <!DOCTYPE html>
 <html dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -54,7 +70,7 @@ def home():
 <style>
 body{{background:#050507;color:#fff;font-family:'Cairo',sans-serif;margin:0}}
 .num{{font-family:'JetBrains Mono',monospace;direction:ltr;display:inline-block}}
-.top{{background:linear-gradient(90deg,#000,#2a2200,#FFD700,#2a2200,#000);padding:14px;text-align:center;font-weight:900;font-size:22px;color:#FFD700;border-bottom:2px solid #FFD700}}
+.top{{background:linear-gradient(90deg,#000,#2a2200,#FFD700,#2a2200,#000);padding:14px;text-align:center;font-weight:900;font-size:20px;color:#FFD700;border-bottom:2px solid #FFD700}}
 .grid3{{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;padding:12px}}
 .grid4{{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;padding:0 12px}}
 .card{{background:radial-gradient(circle at top,#1e1e1e,#0a0a0a);border:1.5px solid #FFD700;border-radius:18px;padding:16px;text-align:center;box-shadow:0 0 15px rgba(255,215,0,0.2)}}
@@ -69,7 +85,7 @@ label{{font-size:12px;color:#aaa}}
 table{{width:100%;margin-top:10px;border-collapse:collapse}} th{{color:#FFD700;padding:10px}} td{{padding:10px;border-top:1px solid #222}}
 </style></head>
 <body>
-<div class="top">V103 لوحة النظام الفخمة REAL - متصل Binance - رصيدك {state['bal']:.2f} USDT</div>
+<div class="top">V103 لوحة النظام الفخمة REAL - {conn} - رصيدك <span class="num">{state['bal']:.2f} USDT</span></div>
 
 <div class="grid3">
 <div class="card">رأس المال<br><span class="num gold" style="font-size:28px">{state['bal']:.2f} USDT</span><br><label>الرصيد الاجمالي + الارباح المحققة - مطابق لبايننس</label></div>
@@ -109,8 +125,8 @@ table{{width:100%;margin-top:10px;border-collapse:collapse}} th{{color:#FFD700;p
 <b>جدول العملات - الحالة</b>
 <table>
 <tr><th>العملة</th><th>السعر</th><th>حجم الصفقة</th><th>الربح</th><th>الحالة</th></tr>
-<tr><td><span class="num">SOL/USDT</span></td><td><span class="num">0.00$</span></td><td><span class="num">5 USDT</span></td><td><span class="num green">+0.00$</span></td><td>ينتظر MACD</td></tr>
-<tr><td><span class="num">LINK/USDT</span></td><td><span class="num">0.00$</span></td><td><span class="num">5 USDT</span></td><td><span class="num green">+0.00$</span></td><td>ينتظر MACD</td></tr>
+<tr><td><span class="num">SOL/USDT</span></td><td><span class="num">5.00 USDT</span></td><td><span class="num">5 USDT</span></td><td><span class="num green">+0.00$</span></td><td>ينتظر MACD</td></tr>
+<tr><td><span class="num">LINK/USDT</span></td><td><span class="num">5.00 USDT</span></td><td><span class="num">5 USDT</span></td><td><span class="num green">+0.00$</span></td><td>ينتظر MACD</td></tr>
 </table>
 </div>
 
