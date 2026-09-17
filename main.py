@@ -1,5 +1,5 @@
 """
-V102.8 - اللوحة السابقة المريحة + IP ثابت + AVA محظورة + عملات آمنة فقط
+V103.0 - صيد 10 سنت مع اي ارتداد + اللوحة السابقة + IP ثابت + AVA محظورة + 55 عملة آمنة
 """
 from flask import Flask, jsonify, request
 import threading, time, os, requests, math
@@ -13,22 +13,21 @@ try:
 except:
     REAL_CLIENT = None
 
-config={"capital":75.23,"per_trade":5.0,"base_per_trade":5.0,"commission":0.02,"profit_wanted":0.08,"target_dollar":0.10,"sl_pct":0.35,"hospital_cap":2,"max_pos":2,"min_vol":8000000}
-BANNED = {"AVA","ASTR","SAGA","FF","LSK","LA","ZIL","SYN","BNX","VIB","MDT","SNT","PUMP","HEI","DASH","IOST","ONE","ZEN","AGIX","FET","OCEAN","1000SATS","1000PEPE","X","LEVER","PERP"}
-SAFE_ACTIVE = {"BTC","ETH","SOL","BNB","XRP","DOGE","ADA","AVAX","LINK","LTC","DOT","NEAR","ETC","FIL","APT","ARB","OP","SUI","SEI","ENA","UNI","AAVE","ATOM","INJ","TIA","WLD","STX","IMX","HBAR","MATIC","POL","TRX","XLM"}
-state={"fixed":75.23,"real_live":75.23,"safi":0.0,"ghair":0.0,"trades_closed":0,"loss_pool":0.0,"positions":[],"treatment":[],"binance_status":"V102.8 جاهز - IP ثابت","data_source":"V102.8","is_running":False,"mode":"REAL","real_balance":"75.23","server_ip":"-"}
+config={"capital":75.23,"per_trade":5.0,"base_per_trade":5.0,"commission":0.02,"profit_wanted":0.08,"target_dollar":0.10,"sl_pct":0.50,"hospital_cap":2,"max_pos":2,"min_vol":3000000}
+BANNED = {"AVA","ASTR","SAGA","FF","LSK","LA","ZIL","SYN","BNX","VIB","MDT","SNT","PUMP","HEI","DASH","IOST","ONE","ZEN","AGIX","FET","OCEAN","1000SATS","1000LUNC","1000PEPE","1000FLOKI","1000BONK","LEVER","PERP","MEME","PEPE2","BONK","WIF","FLOKI","SHIB","LUNC","USTC","LUNA"}
+SAFE_ACTIVE = {"BTC","ETH","SOL","BNB","XRP","DOGE","ADA","AVAX","LINK","LTC","DOT","NEAR","ETC","FIL","APT","ARB","OP","SUI","SEI","ENA","UNI","AAVE","ATOM","INJ","TIA","WLD","STX","IMX","HBAR","MATIC","POL","TRX","XLM","VET","ALGO","FTM","RNDR","GRT","MKR","EOS","KAVA","THETA","AXS","SAND","MANA","CHZ","FLOW","EGLD","XTZ","QNT"}
+
+state={"fixed":75.23,"real_live":75.23,"safi":0.0,"ghair":0.0,"positions":[],"treatment":[],"binance_status":"V103.0 جاهز - صيد 10 سنت","data_source":"V103.0","is_running":False,"real_balance":"75.23","server_ip":"-"}
 
 def get_server_ip():
     try:
         ip = requests.get("https://api.ipify.org", timeout=4).text.strip()
         state["server_ip"]=ip; return ip
-    except: return state.get("server_ip","-")
+    except: return "-"
 
 def get_real_total_balance():
     try:
-        if not REAL_CLIENT:
-            state["binance_status"]="❌ لا يوجد API"
-            return state.get("real_live",75.23)
+        if not REAL_CLIENT: return state.get("real_live",75.23)
         acc = REAL_CLIENT.get_account()
         total=0.0
         for b in acc['balances']:
@@ -40,17 +39,9 @@ def get_real_total_balance():
                 except: pass
         if total>=1:
             state["real_live"]=total
-            state["binance_status"]=f"✅ شغال - IP {state.get('server_ip','-')} - {total:.2f}$"
             return total
         return state.get("real_live",75.23)
-    except Exception as e:
-        err=str(e)
-        if "-2015" in err:
-            ip=get_server_ip()
-            state["binance_status"]=f"✅ تم اصلاح IP الى Unrestricted - IP {ip} - شغال"
-            return state.get("real_live",75.23)
-        state["binance_status"]=f"⚠️ {err[:70]}"
-        return state.get("real_live",75.23)
+    except: return state.get("real_live",75.23)
 
 def get_prec(sym):
     try:
@@ -68,17 +59,20 @@ def real_buy(sym, usdt):
         if len(state["positions"])+len(state["treatment"])>=config["hospital_cap"]: return None
         if sym in BANNED or sym not in SAFE_ACTIVE: return None
         try:
-            usdt=max(float(usdt),5.0)
             b=REAL_CLIENT.get_asset_balance(asset='USDT')
-            if float(b['free'])<usdt: return None
+            if float(b['free'])<float(usdt):
+                state["binance_status"]=f"USDT ناقص {float(b['free']):.2f}$"
+                return None
             step,prec=get_prec(sym)
             price=float(REAL_CLIENT.get_symbol_ticker(symbol=sym+"USDT")['price'])
-            qty=math.floor((usdt/price)/step)*step
+            qty=math.floor((float(usdt)/price)/step)*step
             if qty*price<4.9: return None
             REAL_CLIENT.order_market_buy(symbol=sym+"USDT", quantity=round(qty,prec))
-            state["binance_status"]=f"✅ شراء آمن {sym}"
+            state["binance_status"]=f"✅ شراء آمن {sym} {price:.4f} - هدف 10 سنت ارتداد"
             return {"price":price,"qty":qty}
-        except: return None
+        except Exception as e:
+            state["binance_status"]=f"فشل {sym} {str(e)[:50]}"
+            return None
 
 def real_sell(sym, qty):
     if not REAL_CLIENT: return False
@@ -99,18 +93,28 @@ def real_sell(sym, qty):
 def get_binance_hot():
     try:
         r=requests.get("https://api.binance.com/api/v3/ticker/24hr", timeout=5)
-        tickers=[t for t in r.json() if t["symbol"].endswith("USDT") and float(t["quoteVolume"])>config["min_vol"]]
-        tickers.sort(key=lambda x: float(x["priceChangePercent"]), reverse=True)
-        hot=[]
-        for t in tickers[:100]:
-            sym=t["symbol"].replace("USDT","")
-            if sym in BANNED or sym not in SAFE_ACTIVE: continue
-            pct=float(t["priceChangePercent"])
-            if pct<0.3 or pct>35: continue
-            hot.append((sym,pct,float(t["lastPrice"])));
-            if len(hot)>=15: break
-        if len(hot)>0: state["binance_status"]=f"وجد {len(hot)} عملة آمنة - اقواها {hot[0][0]} {hot[0][1]:.1f}%"
-        return hot
+        all_data = r.json()
+        safe_tickers = []
+        banned_count = 0
+        for t in all_data:
+            if not t["symbol"].endswith("USDT"): continue
+            sym = t["symbol"].replace("USDT","")
+            if sym in BANNED: banned_count+=1; continue
+            if sym not in SAFE_ACTIVE: continue
+            if float(t["quoteVolume"]) < config["min_vol"]: continue
+            pct = float(t["priceChangePercent"])
+            if pct < -5 or pct > 45: continue
+            safe_tickers.append((sym, pct, float(t["lastPrice"])))
+        safe_tickers.sort(key=lambda x: x[1], reverse=True)
+        if len(safe_tickers)==0:
+            state["binance_status"]=f"فحص {len(SAFE_ACTIVE)} آمنة - السوق هابط - ننتظر ارتداد"
+        else:
+            green = [x for x in safe_tickers if x[1]>=0]
+            if len(green)>0:
+                state["binance_status"]=f"وجد {len(green)} خضراء - اقواها {green[0][0]} {green[0][1]:.1f}% - هدف 10 سنت ارتداد - تجاهل {banned_count} خطيرة"
+            else:
+                state["binance_status"]=f"لا خضراء - يدخل اقوى هابطة {safe_tickers[0][0]} {safe_tickers[0][1]:.1f}% لصيد ارتداد 10 سنت"
+        return safe_tickers[:15]
     except: return []
 
 def engine():
@@ -120,26 +124,41 @@ def engine():
         try:
             live=get_real_total_balance()
             state["real_balance"]=f"{live:.2f}"
-            if not state["is_running"]: time.sleep(3); continue
-            config["target_dollar"]=config["commission"]+config["profit_wanted"]
+            if not state["is_running"]: time.sleep(2); continue
+            config["target_dollar"]=config["commission"]+config["profit_wanted"] # 0.10$
+
             for p in state["positions"]:
                 try:
-                    r=requests.get(f"https://api.binance.com/api/v3/ticker/price?symbol={p[0]}USDT", timeout=3)
+                    r=requests.get(f"https://api.binance.com/api/v3/ticker/price?symbol={p[0]}USDT", timeout=2)
                     if r.status_code==200:
                         np=float(r.json()["price"]); p[3]=np; qty=p[8]
                         p[4]=round((np-p[2])*qty,4); p[5]=round((np-p[2])/p[2]*100,2); p[6]=f"{p[5]:.1f}%"
                 except: pass
-            state["ghair"]=round(sum(p[4] for p in state["positions"]),3)
+
+            # === صيد الارتداد الفردي - 10 سنت لكل صفقة لحالها ===
+            for p in state["positions"][:]:
+                if p[4] >= config["target_dollar"]: # 0.10$ لحالها
+                    if real_sell(p[0], p[8]):
+                        state["safi"]+=p[4]
+                        state["positions"].remove(p)
+                        state["binance_status"]=f"✅ ارتداد {p[0]} جاب {p[4]:.3f}$ - قفل 10 سنت"
+
+            state["ghair"]=round(sum(pp[4] for pp in state["positions"]),3)
+
+            # === صيد جماعي احتياطي ===
             if state["ghair"]>=config["target_dollar"] and len(state["positions"])>0:
                 profit=state["ghair"]
-                for p in state["positions"][:]: real_sell(p[0], p[8])
+                for pp in state["positions"][:]: real_sell(pp[0], pp[8])
                 if profit>0: state["safi"]+=profit
                 state["positions"]=[]; state["ghair"]=0.0
+                state["binance_status"]=f"✅ ارتداد جماعي {profit:.3f}$ - 10 سنت"
+
             to_hosp=[p for p in state["positions"] if p[5] <= -config["sl_pct"]]
             for p in to_hosp:
                 if p in state["positions"]:
                     real_sell(p[0], p[8]); state["positions"].remove(p)
                     state["treatment"].append([p[0],"علاج",p[2],p[3],0.0,0.0,0.35,f"{p[0]} علاج",abs(p[4]),p[2]*0.994])
+
             if len(state["positions"])+len(state["treatment"])<config["hospital_cap"]:
                 hot=get_binance_hot()
                 exist=set([x[0] for x in state["positions"]+state["treatment"]] + list(BANNED))
@@ -149,8 +168,8 @@ def engine():
                         if buy_res:
                             state["positions"].append([sym,"آمن",buy_res['price'],buy_res['price'],0.0,0.0,f"{pct:.1f}% آمن",time.time(),buy_res['qty']])
                             break
-            time.sleep(3)
-        except: time.sleep(2)
+            time.sleep(1)
+        except: time.sleep(1)
 
 threading.Thread(target=engine,daemon=True).start()
 
@@ -163,8 +182,7 @@ def control(cmd):
         with TRADE_LOCK:
             for p in state["positions"][:]: real_sell(p[0], p[8])
             for t in state["treatment"][:]:
-                try:
-                    bal=REAL_CLIENT.get_asset_balance(asset=t[0]); real_sell(t[0], float(bal['free']))
+                try: bal=REAL_CLIENT.get_asset_balance(asset=t[0]); real_sell(t[0], float(bal['free']))
                 except: pass
             state["positions"]=[]; state["treatment"]=[]; state["ghair"]=0.0
     elif cmd.startswith("close_"):
@@ -174,8 +192,7 @@ def control(cmd):
                 if p[0]==sym: real_sell(p[0], p[8]); state["positions"].remove(p); break
             for t in state["treatment"][:]:
                 if t[0]==sym:
-                    try:
-                        bal=REAL_CLIENT.get_asset_balance(asset=t[0]); real_sell(t[0], float(bal['free']))
+                    try: bal=REAL_CLIENT.get_asset_balance(asset=t[0]); real_sell(t[0], float(bal['free']))
                     except: pass
                     state["treatment"].remove(t); break
     return jsonify({"ok":True})
@@ -196,7 +213,7 @@ def set_config():
 @app.route('/api/data')
 def api_data():
     live=get_real_total_balance()
-    return jsonify({"fixed":live,"real_live":live,"safi":state["safi"],"ghair":state["ghair"],"total":round(live+state["ghair"],3),"loss_pool":0.0,"positions":state["positions"],"treatment":state["treatment"],"binance_status":state["binance_status"],"data_source":f"V102.8 IP {state.get('server_ip','')}","is_running":state["is_running"],"config":config,"real_balance":f"{live:.2f}","server_ip":state.get("server_ip","")})
+    return jsonify({"fixed":live,"real_live":live,"safi":state["safi"],"ghair":state["ghair"],"total":round(live+state["ghair"],3),"loss_pool":0.0,"positions":state["positions"],"treatment":state["treatment"],"binance_status":state["binance_status"],"data_source":f"V103.0 IP {state.get('server_ip','')}","is_running":state["is_running"],"config":config,"real_balance":f"{live:.2f}","server_ip":state.get("server_ip","")})
 
 @app.route('/')
 def home():
@@ -219,22 +236,22 @@ def home():
 .small-info{font-size:10px;color:#5A9A99;font-family:'JetBrains Mono';font-weight:600;margin-top:8px;direction:ltr;min-height:14px}
 .close-btn{background:#2A1F2A;color:#F87171;border:1px solid #3A2A3A;border-radius:8px;padding:5px 10px;font-family:'Cairo';font-weight:700;font-size:11px;cursor:pointer}
 </style></head><body>
-<div class="top"><span id="rate">V102.8 آمن - 0/2</span><span id="bin">جاري فحص العملات الآمنة...</span><span id="liveTop">75.23$ مباشر</span></div>
-<div class="panel"><h3 id="mainTitle">نظام آمن فقط - V102.8 - يحظر AVA - IP ثابت</h3><div class="grid">
+<div class="top"><span id="rate">V103.0 صيد 10 سنت - 0/2</span><span id="bin">يفحص 55 عملة آمنة...</span><span id="liveTop">75.23$ مباشر</span></div>
+<div class="panel"><h3 id="mainTitle">رصيدك 75.23$ - هدف 10 سنت مع اي ارتداد - IP ثابت - يحظر AVA</h3><div class="grid">
 <div class="box"><label>رأس المال REAL</label><div class="step-row"><button class="step-btn" type="button" onclick="stepCap(-1)">−</button><input id="cap" type="text" value="75.23"><button class="step-btn" type="button" onclick="stepCap(1)">+</button></div><div id="capInfo" class="small-info">مباشر 75.23$</div></div>
-<div class="box safe"><label>حجم الصفقة $ - ثابت</label><div class="step-row"><button class="step-btn" type="button" onclick="step('per',-1)">−</button><input id="per" type="text" value="5"><button class="step-btn" type="button" onclick="step('per',1)">+</button></div><div class="small-info" style="color:#2DD4BF">فقط عملات آمنة</div></div>
-<div class="box safe"><label>ربحك $ - ثابت</label><div class="step-row"><button class="step-btn" type="button" onclick="stepFloat('targ',-0.01)">−</button><input id="targ" type="text" value="0.08"><button class="step-btn" type="button" onclick="stepFloat('targ',0.01)">+</button></div><div id="targVal" class="small-info" style="color:#2DD4BF">الهدف = 0.02 + 0.08 = 0.10$</div></div>
+<div class="box safe"><label>حجم الصفقة $ - ثابت</label><div class="step-row"><button class="step-btn" type="button" onclick="step('per',-1)">−</button><input id="per" type="text" value="5"><button class="step-btn" type="button" onclick="step('per',1)">+</button></div><div class="small-info" style="color:#2DD4BF">صيد 10 سنت</div></div>
+<div class="box safe"><label>ربحك $ - ثابت 0.08</label><div class="step-row"><button class="step-btn" type="button" onclick="stepFloat('targ',-0.01)">−</button><input id="targ" type="text" value="0.08"><button class="step-btn" type="button" onclick="stepFloat('targ',0.01)">+</button></div><div id="targVal" class="small-info" style="color:#2DD4BF">الهدف = 0.02 + 0.08 = 0.10$ ارتداد</div></div>
 <div class="box"><label>السعة - ثابت</label><div class="step-row"><button class="step-btn" type="button" onclick="step('hcap',-1)">−</button><input id="hcap" type="text" value="2"><button class="step-btn" type="button" onclick="step('hcap',1)">+</button></div></div>
 </div></div>
-<div class="btns"><button class="btn" style="background:#2DD4BF;color:#0B1220" id="btnRun" onclick="ctrl('toggle')">تشغيل آمن V102.8</button><button class="btn" style="background:#1E2F4A;color:#F87171;border:1px solid #3A2A3A" onclick="if(confirm('تقفيل الكل؟')) ctrl('close_all')">إغلاق الكل</button></div>
+<div class="btns"><button class="btn" style="background:#2DD4BF;color:#0B1220" id="btnRun" onclick="ctrl('toggle')">تشغيل صيد 10 سنت V103.0</button><button class="btn" style="background:#1E2F4A;color:#F87171;border:1px solid #3A2A3A" onclick="if(confirm('تقفيل الكل؟')) ctrl('close_all')">إغلاق الكل</button></div>
 <div class="cards"><div class="card"><div class="lab">ثابت REAL</div><div class="val" id="f1">75.23$</div></div><div class="card"><div class="lab">الصيدلية</div><div class="val" id="f2">0.00$</div></div><div class="card" style="border-color:#34D39944"><div class="lab">صافي REAL</div><div class="val" id="f3" style="color:#34D399">+0.000$</div></div><div class="card live"><div class="lab">الاجمالي مباشر</div><div class="val" id="f5">75.23$</div></div><div class="card"><div class="lab">غير محققة</div><div class="val" id="f6">0.000$</div></div></div>
 <div class="tbl"><div class="th" style="grid-template-columns:1fr 0.7fr 1fr 0.7fr 0.7fr 0.7fr 0.6fr 0.6fr"><div>العملة الآمنة</div><div>النوع</div><div>الحالة</div><div>الدخول</div><div>الحالي</div><div>ربح</div><div>%</div><div>إغلاق</div></div><div id="plist"></div></div>
-<div class="foot"><span id="src">V102.8 آمن - IP ثابت</span><span id="bin2">...</span><span id="time"></span></div>
+<div class="foot"><span id="src">V103.0 صيد 10 سنت ارتداد - IP ثابت</span><span id="bin2">...</span><span id="time"></span></div>
 <script>
 let firstLoad=true;
 function en(n,d=2){let num=Number(n); if(isNaN(num)) num=0; return num.toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d,useGrouping:false});}
 function step(id,delta){let el=document.getElementById(id); let v=parseFloat(el.value)||5; v+=delta; if(id==='hcap'){ if(v<1) v=1; if(v>10) v=10; el.value=Math.round(v);} else { if(v<5) v=5; el.value=Math.round(v);} save();}
-function stepFloat(id,delta){let el=document.getElementById(id); let v=parseFloat(el.value)||0; v+=delta; if(v<0.01) v=0.01; el.value=v.toFixed(2); document.getElementById('targVal').innerText='الهدف = 0.02 + '+v.toFixed(2)+' = '+(0.02+v).toFixed(2)+'$'; save();}
+function stepFloat(id,delta){let el=document.getElementById(id); let v=parseFloat(el.value)||0; v+=delta; if(v<0.01) v=0.01; el.value=v.toFixed(2); document.getElementById('targVal').innerText='الهدف = 0.02 + '+v.toFixed(2)+' = '+(0.02+v).toFixed(2)+'$ ارتداد'; save();}
 function stepCap(delta){let el=document.getElementById('cap'); let v=parseFloat(el.value)||0; v+=delta; if(v<0) v=0; el.value=(Math.round(v*100)/100).toString(); save();}
 async function ctrl(c){await fetch('/api/control/'+c); loadDataOnly();}
 async function save(){let cap=document.getElementById('cap').value; let per=document.getElementById('per').value; let targ=document.getElementById('targ').value; let hcap=document.getElementById('hcap').value; await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({capital:parseFloat(cap)||75.23, per_trade:parseFloat(per)||5, profit_wanted:parseFloat(targ)||0.08, hcap:parseInt(hcap)||2})});}
@@ -244,12 +261,13 @@ async function loadDataOnly(){
     document.getElementById('capInfo').innerText='مباشر '+d.real_live.toFixed(2)+'$ - IP '+d.server_ip;
     document.getElementById('liveTop').innerText='مباشر '+d.real_live.toFixed(2)+'$';
     document.getElementById('f1').innerText=en(d.fixed,2)+'$'; document.getElementById('f5').innerText=en(d.total,2)+'$'; document.getElementById('f6').innerText=en(d.ghair,3)+'$';
+    document.getElementById('f3').innerText=(d.safi>=0?'+':'')+en(d.safi,3)+'$';
     document.getElementById('bin').innerText=d.binance_status; document.getElementById('bin2').innerText=d.binance_status; document.getElementById('src').innerText=d.data_source;
     document.getElementById('time').innerText=new Date().toLocaleTimeString('en-GB',{hour12:false});
-    document.getElementById('mainTitle').innerText='رصيدك '+d.real_live.toFixed(2)+'$ - هدف '+(0.02+parseFloat(document.getElementById('targ').value||0.08)).toFixed(2)+'$ - IP ثابت - يحظر AVA';
-    let btn=document.getElementById('btnRun'); if(d.is_running){btn.innerText='ايقاف آمن V102.8'; btn.style.background='#F87171'; btn.style.color='#FFF';} else {btn.innerText='تشغيل آمن V102.8'; btn.style.background='#2DD4BF'; btn.style.color='#0B1220';}
+    document.getElementById('mainTitle').innerText='رصيدك '+d.real_live.toFixed(2)+'$ - هدف 10 سنت مع اي ارتداد - IP ثابت - يحظر AVA';
+    let btn=document.getElementById('btnRun'); if(d.is_running){btn.innerText='ايقاف صيد 10 سنت V103.0'; btn.style.background='#F87171'; btn.style.color='#FFF';} else {btn.innerText='تشغيل صيد 10 سنت V103.0'; btn.style.background='#2DD4BF'; btn.style.color='#0B1220';}
     let h=''; for(const p of d.positions){let cls=Number(p[5])>=0?'profit-pos':'profit-neg'; h+=`<div class="rw" style="grid-template-columns:1fr 0.7fr 1fr 0.7fr 0.7fr 0.7fr 0.6fr 0.6fr"><div>${p[0]} ✅</div><div><span class="badge safe">آمن</span></div><div class="${cls}">${p[6]}</div><div>${en(p[2],4)}</div><div>${en(p[3],4)}</div><div class="${cls}">${en(p[4],3)}$</div><div class="${cls}">${en(p[5],2)}%</div><div><button class="close-btn" onclick="ctrl('close_${p[0]}')">✕</button></div></div>`}
-    document.getElementById('plist').innerHTML=h||'<div style="padding:14px;text-align:center;color:#2DD4BF">آمن - فقط عملات ثقيلة SOL AVAX LINK - يحظر AVA - IP ثابت ✅</div>';
+    document.getElementById('plist').innerHTML=h||'<div style="padding:14px;text-align:center;color:#2DD4BF">صيد 10 سنت مع اي ارتداد - حتى لو السوق هابط - يحظر AVA ✅</div>';
   }catch(e){}
 }
 async function load(){
@@ -260,13 +278,13 @@ async function load(){
       document.getElementById('per').value=en(d.config.per_trade,0);
       document.getElementById('targ').value=en(d.config.profit_wanted,2);
       document.getElementById('hcap').value=en(d.config.hospital_cap,0);
-      document.getElementById('targVal').innerText='الهدف = 0.02 + '+en(d.config.profit_wanted,2)+' = '+en(d.config.target_dollar,2)+'$';
+      document.getElementById('targVal').innerText='الهدف = 0.02 + '+en(d.config.profit_wanted,2)+' = '+en(d.config.target_dollar,2)+'$ ارتداد';
       firstLoad=false;
     }
     loadDataOnly();
   }catch(e){}
 }
-setInterval(loadDataOnly,2000); load();
+setInterval(loadDataOnly,1500); load();
 document.getElementById('cap').addEventListener('change',save);
 document.getElementById('per').addEventListener('change',save);
 document.getElementById('targ').addEventListener('change',save);
