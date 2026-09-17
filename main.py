@@ -1,5 +1,6 @@
 """
-V102.5 - ألوان مريحة للنظر بدون أصفر + اختياراتك ثابتة
+V102.6 - فقط العملات النشيطة المأمونة + ألوان مريحة + اختياراتك ثابتة
+- AVA محظورة - فقط BTC ETH SOL BNB XRP DOGE ADA AVAX LINK LTC DOT NEAR ETC FIL APT ARB OP SUI SEI ENA UNI AAVE ATOM INJ TIA
 """
 from flask import Flask, jsonify, request
 import threading, time, os, requests, math
@@ -24,12 +25,20 @@ config={
     "sl_pct":0.35,
     "hospital_cap":2,
     "max_pos":2,
-    "min_vol":5000000,
+    "min_vol":8000000, # 8M حجم آمن
 }
 
-BANNED = {"ASTR","ASTAR","SAGA","FF","LSK","LA","ZIL","SYN","BNX","VIB","MDT","SNT","PUMP","HEI","DASH","IOST","ONE","ZEN","AGIX","FET","OCEAN","PEPE2","FLOKI","WIF","BONK","MEME","LUNC","USTC","ALPACA","NKN","DENT","HOT","WIN"}
+# كل العملات الخطيرة والبامب محظورة
+BANNED = {
+"AVA","ASTR","ASTAR","SAGA","FF","LSK","LA","ZIL","SYN","BNX","VIB","MDT","SNT","PUMP","HEI","DASH","IOST","ONE","ZEN","AGIX","FET","OCEAN","PEPE2","FLOKI","WIF","BONK","MEME","LUNC","USTC","ALPACA","NKN","DENT","HOT","WIN","X","A","B","C","D","1000SATS","1000LUNC","1000PEPE","1000FLOKI","1000BONK","1000SHIB","LEVER","PERP","PHB","FTT","LUNA","LUNC"
+}
 
-state={"fixed":75.23,"real_live":75.23,"safi":0.0,"ghair":0.0,"trades_closed":0,"loss_pool":0.0,"positions":[],"treatment":[],"doctor_positions":[],"binance_status":"V102.5 الوان مريحة جاهز","data_source":"V102.5 مريح","is_running":False,"mode":"REAL","real_balance":"75.23"}
+# فقط العملات المأمونة الثقيلة - نشيطة وآمنة
+SAFE_ACTIVE = {
+"BTC","ETH","SOL","BNB","XRP","DOGE","ADA","AVAX","LINK","LTC","DOT","NEAR","ETC","FIL","APT","ARB","OP","SUI","SEI","ENA","UNI","AAVE","ATOM","INJ","TIA","WLD","STX","IMX","HBAR","MATIC","POL","LTC","TRX","ETC","XLM","VET","ALGO","ATOM"
+}
+
+state={"fixed":75.23,"real_live":75.23,"safi":0.0,"ghair":0.0,"trades_closed":0,"loss_pool":0.0,"positions":[],"treatment":[],"binance_status":"V102.6 آمن - فقط عملات مأمونة","data_source":"V102.6 آمن","is_running":False,"mode":"REAL","real_balance":"75.23"}
 
 def get_real_total_balance():
     total=0.0
@@ -39,8 +48,7 @@ def get_real_total_balance():
         for b in acc['balances']:
             free = float(b['free']) + float(b['locked'])
             if free == 0: continue
-            if b['asset'] == "USDT":
-                total += free
+            if b['asset'] == "USDT": total += free
             else:
                 try:
                     price = float(REAL_CLIENT.get_symbol_ticker(symbol=b['asset']+"USDT")['price'])
@@ -52,7 +60,6 @@ def get_real_total_balance():
         except: pass
         if total >= 1:
             state["real_live"] = total
-            state["binance_status"]=f"مباشر {total:.2f}$ - السوق جاهز"
             return total
         return state.get("real_live", config["capital"])
     except:
@@ -71,18 +78,31 @@ def get_prec(sym):
 def real_buy(sym, usdt):
     if not REAL_CLIENT: return None
     with TRADE_LOCK:
-        if len(state["positions"]) + len(state["treatment"]) >= config["hospital_cap"]: return None
+        if len(state["positions"]) + len(state["treatment"]) >= config["hospital_cap"]:
+            state["binance_status"]=f"قفل حديدي {len(state['positions'])}/{config['hospital_cap']}"
+            return None
+        if sym in BANNED:
+            state["binance_status"]=f"{sym} محظورة - عملة خطيرة"
+            return None
+        if sym not in SAFE_ACTIVE:
+            state["binance_status"]=f"{sym} غير مأمونة - تخطي"
+            return None
         try:
             usdt=max(float(usdt),5.0)
             b=REAL_CLIENT.get_asset_balance(asset='USDT')
-            if float(b['free']) < usdt: return None
+            if float(b['free']) < usdt:
+                state["binance_status"]=f"USDT ناقص {float(b['free']):.2f}$"
+                return None
             step,prec=get_prec(sym)
             price=float(REAL_CLIENT.get_symbol_ticker(symbol=sym+"USDT")['price'])
             qty=math.floor((usdt/price)/step)*step
             if qty*price < 4.9: return None
             REAL_CLIENT.order_market_buy(symbol=sym+"USDT", quantity=round(qty,prec))
+            state["binance_status"]=f"✅ شراء آمن {sym} {price:.4f}"
             return {"price":price,"qty":qty}
-        except: return None
+        except Exception as e:
+            state["binance_status"]=f"فشل شراء {sym} {e}"
+            return None
 
 def real_sell(sym, qty):
     if not REAL_CLIENT: return False
@@ -104,21 +124,40 @@ def real_sell(sym, qty):
 def get_binance_hot():
     try:
         r=requests.get("https://api.binance.com/api/v3/ticker/24hr", timeout=5)
-        tickers=[t for t in r.json() if t["symbol"].endswith("USDT") and float(t["quoteVolume"])>config["min_vol"]]
+        all_tickers = r.json()
+        # فقط عملات USDT وحجم آمن
+        tickers=[t for t in all_tickers if t["symbol"].endswith("USDT") and float(t["quoteVolume"])>config["min_vol"]]
         tickers.sort(key=lambda x: float(x["priceChangePercent"]), reverse=True)
+
         hot=[]
-        for t in tickers[:80]:
+        skipped_banned = 0
+        for t in tickers[:100]:
             sym=t["symbol"].replace("USDT","")
-            if sym in BANNED or len(sym)>10: continue
             pct=float(t["priceChangePercent"])
-            if pct < 0.5: continue
-            hot.append((sym,pct,float(t["lastPrice"])))
+
+            if sym in BANNED:
+                skipped_banned += 1
+                continue
+            if sym not in SAFE_ACTIVE:
+                continue
+            if pct < 0.3: continue # على الأقل 0.3% نشاط
+            if pct > 40: continue # فوق 40% بامب خطر - نتجاهل
+
+            hot.append((sym,pct,float(t["lastPrice"]), float(t["quoteVolume"])))
+            if len(hot) >= 15: break
+
         if len(hot)==0:
-            state["binance_status"]=f"السوق هادئ - لا يوجد نشاط >0.5% {time.strftime('%H:%M:%S')}"
+            if skipped_banned>0:
+                state["binance_status"]=f"تخطي {skipped_banned} عملة خطيرة مثل AVA - ننتظر عملة آمنة"
+            else:
+                state["binance_status"]=f"السوق هادئ - لا يوجد عملات آمنة نشيطة الآن {time.strftime('%H:%M:%S')}"
         else:
-            state["binance_status"]=f"وجد {len(hot)} عملة - اقواها {hot[0][0]} {hot[0][1]:.1f}%"
-        return hot[:15]
-    except: return []
+            top = hot[0]
+            state["binance_status"]=f"وجد {len(hot)} عملة آمنة - اقواها {top[0]} {top[1]:.1f}% آمن"
+        return hot
+    except Exception as e:
+        state["binance_status"]=f"خطأ السوق {e}"
+        return []
 
 def engine():
     time.sleep(2)
@@ -142,22 +181,24 @@ def engine():
                 for p in state["positions"][:]: real_sell(p[0], p[8])
                 if profit>0: state["safi"]+=profit
                 state["positions"]=[]; state["ghair"]=0.0
+                state["binance_status"]=f"✅ ربح آمن {profit:.3f}$"
             to_hosp=[p for p in state["positions"] if p[5] <= -config["sl_pct"]]
             for p in to_hosp:
                 if p in state["positions"]:
                     real_sell(p[0], p[8]); state["positions"].remove(p)
-                    state["treatment"].append([p[0],"علاج",p[2],p[3],0.0,0.0,0.35,f"{p[0]} يعالج",abs(p[4]),p[2]*0.994])
+                    state["treatment"].append([p[0],"علاج",p[2],p[3],0.0,0.0,0.35,f"{p[0]} علاج",abs(p[4]),p[2]*0.994])
             if len(state["positions"]) + len(state["treatment"]) < config["hospital_cap"]:
                 hot=get_binance_hot()
                 exist=set([x[0] for x in state["positions"]+state["treatment"]] + list(BANNED))
-                for sym,pct,price in hot:
+                for sym,pct,price,vol in hot:
                     if sym not in exist:
                         buy_res=real_buy(sym, config["per_trade"])
                         if buy_res:
-                            state["positions"].append([sym,"REAL",buy_res['price'],buy_res['price'],0.0,0.0,f"{pct:.1f}%",time.time(),buy_res['qty']])
+                            state["positions"].append([sym,"آمن",buy_res['price'],buy_res['price'],0.0,0.0,f"{pct:.1f}% آمن",time.time(),buy_res['qty']])
                             break
             time.sleep(2)
-        except: time.sleep(1)
+        except Exception as e:
+            print(f"ENGINE ERR {e}"); time.sleep(1)
 
 threading.Thread(target=engine,daemon=True).start()
 
@@ -204,44 +245,40 @@ def set_config():
 def api_data():
     live = get_real_total_balance()
     total_display = live + state["ghair"] - state["loss_pool"]
-    return jsonify({"fixed":live,"real_live":live,"safi":state["safi"],"ghair":state["ghair"],"total":round(total_display,3),"trades_closed":state["trades_closed"],"loss_pool":state["loss_pool"],"positions":state["positions"],"treatment":state["treatment"],"binance_status":state["binance_status"],"data_source":f"V102.5 الوان مريحة {live:.2f}$","is_running":state["is_running"],"config":config,"real_balance":f"{live:.2f}"})
+    return jsonify({"fixed":live,"real_live":live,"safi":state["safi"],"ghair":state["ghair"],"total":round(total_display,3),"loss_pool":state["loss_pool"],"positions":state["positions"],"treatment":state["treatment"],"binance_status":state["binance_status"],"data_source":f"V102.6 آمن {live:.2f}$","is_running":state["is_running"],"config":config,"real_balance":f"{live:.2f}"})
 
 @app.route('/')
 def home():
     return """<html dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link href="https://fonts.googleapis.com/css2?family=Cairo:wght@600;700;800&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet"><style>
 *{box-sizing:border-box}body{margin:0;background:#0B1220;color:#D6DEE8;font-family:'Cairo';overflow-x:hidden}
-.top{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;margin:8px;background:#121E35;border:1px solid #1E2F4A;border-radius:12px;font-size:13px;font-weight:700;color:#8AA0B8}
-.panel{background:#121E35;border:1px solid #1E2F4A;border-radius:16px;margin:8px;padding:14px}.panel h3{margin:0 0 12px;text-align:center;color:#7DD3D0;font-size:17px;font-weight:700;letter-spacing:0.5px}
-.grid{display:grid;gap:10px}.box{background:#0F1B2F;border:1px solid #1E344E;border-radius:14px;padding:12px 8px;text-align:center;min-width:0;transition:0.2s}.box:focus-within{border-color:#2DD4BF;box-shadow:0 0 0 2px #2DD4BF22}
-.box label{font-size:12px;color:#8AA0B8;display:block;margin-bottom:8px;font-weight:600}
-.box input{width:100%;height:54px;background:#0B1220;border:1px solid #1E3A4A;border-radius:10px;color:#E6F0F5;font-family:'JetBrains Mono'!important;font-weight:700!important;font-size:24px!important;text-align:center;direction:ltr!important}
-.step-row{display:flex;gap:8px;align-items:center;margin-top:8px}.step-btn{width:48px;height:54px;background:#16263F;color:#7DD3D0;border:1px solid #1E3A4A;border-radius:10px;font-weight:700;font-size:22px;cursor:pointer;transition:0.2s}.step-btn:hover{background:#1E344E;color:#2DD4BF}
+.top{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;margin:8px;background:#121E35;border:1px solid #1E2F4A;border-radius:12px;font-size:12px;font-weight:700;color:#8AA0B8;flex-wrap:wrap;gap:6px}
+.panel{background:#121E35;border:1px solid #1E2F4A;border-radius:16px;margin:8px;padding:14px}.panel h3{margin:0 0 12px;text-align:center;color:#7DD3D0;font-size:16px;font-weight:700}
+.grid{display:grid;gap:10px}.box{background:#0F1B2F;border:1px solid #1E344E;border-radius:14px;padding:12px 8px;text-align:center;min-width:0}.box.safe{border-color:#2DD4BF66;box-shadow:0 0 0 1px #2DD4BF22}.box label{font-size:11px;color:#8AA0B8;display:block;margin-bottom:8px;font-weight:600}
+.box input{width:100%;height:52px;background:#0B1220;border:1px solid #1E3A4A;border-radius:10px;color:#E6F0F5;font-family:'JetBrains Mono'!important;font-weight:700!important;font-size:22px!important;text-align:center;direction:ltr!important}
+.step-row{display:flex;gap:8px;align-items:center;margin-top:8px}.step-btn{width:46px;height:52px;background:#16263F;color:#7DD3D0;border:1px solid #1E3A4A;border-radius:10px;font-weight:700;font-size:20px;cursor:pointer}.step-btn:hover{background:#1E344E}
 @media(max-width:768px){.grid{grid-template-columns:1fr 1fr}}@media(min-width:769px){.grid{grid-template-columns:repeat(4,1fr)}}
-.btns{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;padding:12px}.btn{border:none;border-radius:24px;padding:11px 18px;font-family:'Cairo';font-size:12px;font-weight:700;cursor:pointer;transition:0.2s}
-.cards{display:grid;gap:8px;padding:8px}.card{background:#121E35;border:1px solid #1E2F4A;border-radius:14px;padding:12px 6px;text-align:center;min-width:0}.card.lab{font-size:11px;color:#8AA0B8;margin-bottom:6px;font-weight:600}.card.val{font-family:'JetBrains Mono'!important;font-weight:700;direction:ltr!important;white-space:nowrap;font-size:15px;color:#E6F0F5}
+.btns{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;padding:12px}.btn{border:none;border-radius:24px;padding:11px 18px;font-family:'Cairo';font-size:12px;font-weight:700;cursor:pointer}
+.cards{display:grid;gap:8px;padding:8px}.card{background:#121E35;border:1px solid #1E2F4A;border-radius:14px;padding:12px 6px;text-align:center;min-width:0}.lab{font-size:11px;color:#8AA0B8;margin-bottom:6px;font-weight:600}.val{font-family:'JetBrains Mono'!important;font-weight:700;direction:ltr!important;white-space:nowrap;font-size:14px;color:#E6F0F5}
 .card.live{border-color:#2DD4BF44}.card.live.val{color:#2DD4BF}
-.card.profit{border-color:#34D39944}.card.profit.val{color:#34D399}
 @media(max-width:768px){.cards{grid-template-columns:1fr 1fr}.cards.card:nth-child(3){grid-column:1 / -1}}@media(min-width:769px){.cards{grid-template-columns:repeat(5,1fr)}}
-.tbl{margin:8px;border-radius:14px;overflow:hidden;border:1px solid #1E2F4A;overflow-x:auto;background:#0F1B2F}.th{display:grid;padding:12px 10px;font-size:12px;font-weight:700;color:#7DD3D0;background:#121E35;min-width:600px;border-bottom:1px solid #1E2F4A}.rw{display:grid;padding:10px;font-size:12px;background:#0F1B2F;border-top:1px solid #1A2A42;min-width:600px;align-items:center}.rw div{font-family:'JetBrains Mono'!important;font-weight:600;direction:ltr!important;white-space:nowrap;color:#C2D0DD}
-.badge{border-radius:8px;padding:4px 8px;font-size:10px;font-weight:700;display:inline-block;background:#1E344E;color:#7DD3D0}
+.tbl{margin:8px;border-radius:14px;overflow:hidden;border:1px solid #1E2F4A;overflow-x:auto;background:#0F1B2F}.th{display:grid;padding:11px 10px;font-size:11px;font-weight:700;color:#7DD3D0;background:#121E35;min-width:600px;border-bottom:1px solid #1E2F4A}.rw{display:grid;padding:10px;font-size:11px;background:#0F1B2F;border-top:1px solid #1A2A42;min-width:600px;align-items:center}.rw div{font-family:'JetBrains Mono'!important;font-weight:600;direction:ltr!important;white-space:nowrap;color:#C2D0DD}
+.badge{border-radius:8px;padding:4px 8px;font-size:10px;font-weight:700;display:inline-block;background:#1E344E;color:#7DD3D0}.badge.safe{background:#0F2F2A;color:#2DD4BF;border:1px solid #2DD4BF44}
 .profit-pos{color:#34D399!important}.profit-neg{color:#F87171!important}
-.foot{padding:10px 14px;font-size:11px;background:#0B1220;color:#5A7088;display:flex;justify-content:space-between;font-family:'JetBrains Mono';direction:ltr;flex-wrap:wrap;gap:6px;border-top:1px solid #121E35}
-.small-info{font-size:11px;color:#5A9A99;font-family:'JetBrains Mono';font-weight:600;margin-top:8px;direction:ltr}
+.foot{padding:10px 14px;font-size:10px;background:#0B1220;color:#5A7088;display:flex;justify-content:space-between;font-family:'JetBrains Mono';direction:ltr;flex-wrap:wrap;gap:6px;border-top:1px solid #121E35}
+.small-info{font-size:10px;color:#5A9A99;font-family:'JetBrains Mono';font-weight:600;margin-top:8px;direction:ltr;min-height:14px}
 .close-btn{background:#2A1F2A;color:#F87171;border:1px solid #3A2A3A;border-radius:8px;padding:5px 10px;font-family:'Cairo';font-weight:700;font-size:11px;cursor:pointer}
-.close-btn:hover{background:#3A2A3A}
-.status-ok{color:#2DD4BF}.status-wait{color:#8AA0B8}
 </style></head><body>
-<div class="top"><span id="rate">V102.5 - 0/2</span><span id="bin" class="status-ok">جاري...</span><span id="liveTop">75.23$ مباشر</span></div>
-<div class="panel"><h3 id="mainTitle">نظام التداول الذكي - V102.5 مريح للعين</h3><div class="grid">
+<div class="top"><span id="rate">V102.6 آمن - 0/2</span><span id="bin">جاري فحص العملات الآمنة...</span><span id="liveTop">75.23$ مباشر</span></div>
+<div class="panel"><h3 id="mainTitle">نظام آمن فقط - V102.6 - يحظر AVA والبامبات</h3><div class="grid">
 <div class="box"><label>رأس المال REAL</label><div class="step-row"><button class="step-btn" type="button" onclick="stepCap(-1)">−</button><input id="cap" type="text" value="75.23"><button class="step-btn" type="button" onclick="stepCap(1)">+</button></div><div id="capInfo" class="small-info">مباشر من بايننس 75.23$</div></div>
-<div class="box"><label>حجم الصفقة $ - ثابت</label><div class="step-row"><button class="step-btn" type="button" onclick="step('per',-1)">−</button><input id="per" type="text" value="5"><button class="step-btn" type="button" onclick="step('per',1)">+</button></div><div class="small-info">يثبت حسب اختيارك</div></div>
-<div class="box" style="border-color:#2DD4BF66"><label>ربحك $ - ثابت</label><div class="step-row"><button class="step-btn" type="button" onclick="stepFloat('targ',-0.01)">−</button><input id="targ" type="text" value="0.08"><button class="step-btn" type="button" onclick="stepFloat('targ',0.01)">+</button></div><div id="targVal" class="small-info" style="color:#2DD4BF">الهدف = 0.02 + 0.08 = 0.10$</div></div>
+<div class="box safe"><label>حجم الصفقة $ - ثابت آمن</label><div class="step-row"><button class="step-btn" type="button" onclick="step('per',-1)">−</button><input id="per" type="text" value="5"><button class="step-btn" type="button" onclick="step('per',1)">+</button></div><div class="small-info" style="color:#2DD4BF">فقط عملات آمنة</div></div>
+<div class="box safe"><label>ربحك $ - ثابت</label><div class="step-row"><button class="step-btn" type="button" onclick="stepFloat('targ',-0.01)">−</button><input id="targ" type="text" value="0.08"><button class="step-btn" type="button" onclick="stepFloat('targ',0.01)">+</button></div><div id="targVal" class="small-info" style="color:#2DD4BF">الهدف = 0.02 + 0.08 = 0.10$</div></div>
 <div class="box"><label>السعة - ثابت</label><div class="step-row"><button class="step-btn" type="button" onclick="step('hcap',-1)">−</button><input id="hcap" type="text" value="2"><button class="step-btn" type="button" onclick="step('hcap',1)">+</button></div></div>
 </div></div>
-<div class="btns"><button class="btn" style="background:#2DD4BF;color:#0B1220" id="btnRun" onclick="ctrl('toggle')">تشغيل V102.5</button><button class="btn" style="background:#1E2F4A;color:#F87171;border:1px solid #3A2A3A" onclick="if(confirm('تقفيل الكل؟')) ctrl('close_all')">إغلاق الكل</button></div>
-<div class="cards"><div class="card"><div class="lab">ثابت REAL</div><div class="val" id="f1">75.23$</div></div><div class="card"><div class="lab">الصيدلية</div><div class="val" id="f2">0.00$</div></div><div class="card profit"><div class="lab">صافي REAL</div><div class="val" id="f3">+0.000$</div></div><div class="card live"><div class="lab">الاجمالي مباشر</div><div class="val" id="f5">75.23$</div></div><div class="card"><div class="lab">غير محققة</div><div class="val" id="f6">0.000$</div></div></div>
-<div class="tbl"><div class="th" style="grid-template-columns:1fr 0.7fr 1fr 0.7fr 0.7fr 0.7fr 0.6fr 0.6fr"><div>العملة</div><div>النوع</div><div>الحالة</div><div>الدخول</div><div>الحالي</div><div>ربح</div><div>%</div><div>إغلاق</div></div><div id="plist"></div></div>
-<div class="foot"><span id="src">V102.5 الوان مريحة</span><span id="bin2">...</span><span id="time"></span></div>
+<div class="btns"><button class="btn" style="background:#2DD4BF;color:#0B1220" id="btnRun" onclick="ctrl('toggle')">تشغيل آمن V102.6</button><button class="btn" style="background:#1E2F4A;color:#F87171;border:1px solid #3A2A3A" onclick="if(confirm('تقفيل الكل؟')) ctrl('close_all')">إغلاق الكل</button></div>
+<div class="cards"><div class="card"><div class="lab">ثابت REAL</div><div class="val" id="f1">75.23$</div></div><div class="card"><div class="lab">الصيدلية</div><div class="val" id="f2">0.00$</div></div><div class="card" style="border-color:#34D39944"><div class="lab">صافي REAL</div><div class="val" id="f3" style="color:#34D399">+0.000$</div></div><div class="card live"><div class="lab">الاجمالي مباشر</div><div class="val" id="f5">75.23$</div></div><div class="card"><div class="lab">غير محققة</div><div class="val" id="f6">0.000$</div></div></div>
+<div class="tbl"><div class="th" style="grid-template-columns:1fr 0.7fr 1fr 0.7fr 0.7fr 0.7fr 0.6fr 0.6fr"><div>العملة الآمنة</div><div>النوع</div><div>الحالة</div><div>الدخول</div><div>الحالي</div><div>ربح</div><div>%</div><div>إغلاق</div></div><div id="plist"></div></div>
+<div class="foot"><span id="src">V102.6 آمن - يحظر AVA</span><span id="bin2">...</span><span id="time"></span></div>
 <script>
 let firstLoad=true;
 function en(n,d=2){let num=Number(n); if(isNaN(num)) num=0; return num.toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d,useGrouping:false});}
@@ -253,15 +290,15 @@ async function save(){let cap=document.getElementById('cap').value; let per=docu
 async function loadDataOnly(){
   try{
     const r=await fetch('/api/data'); const d=await r.json();
-    document.getElementById('capInfo').innerText='مباشر '+d.real_live.toFixed(2)+'$ من بايننس';
+    document.getElementById('capInfo').innerText='مباشر '+d.real_live.toFixed(2)+'$ - آمن فقط';
     document.getElementById('liveTop').innerText='مباشر '+d.real_live.toFixed(2)+'$';
     document.getElementById('f1').innerText=en(d.fixed,2)+'$'; document.getElementById('f5').innerText=en(d.total,2)+'$'; document.getElementById('f6').innerText=en(d.ghair,3)+'$';
     document.getElementById('bin').innerText=d.binance_status; document.getElementById('bin2').innerText=d.binance_status; document.getElementById('src').innerText=d.data_source;
     document.getElementById('time').innerText=new Date().toLocaleTimeString('en-GB',{hour12:false});
-    document.getElementById('mainTitle').innerText='رصيدك '+d.real_live.toFixed(2)+'$ - هدف '+(0.02+parseFloat(document.getElementById('targ').value||0.08)).toFixed(2)+'$ - V102.5 مريح';
-    let btn=document.getElementById('btnRun'); if(d.is_running){btn.innerText='ايقاف V102.5'; btn.style.background='#F87171'; btn.style.color='#FFF';} else {btn.innerText='تشغيل V102.5'; btn.style.background='#2DD4BF'; btn.style.color='#0B1220';}
-    let h=''; for(const p of d.positions){let cls=Number(p[5])>=0?'profit-pos':'profit-neg'; h+=`<div class="rw" style="grid-template-columns:1fr 0.7fr 1fr 0.7fr 0.7fr 0.7fr 0.6fr 0.6fr"><div>${p[0]}</div><div><span class="badge">REAL</span></div><div class="${cls}">${p[6]}</div><div>${en(p[2],4)}</div><div>${en(p[3],4)}</div><div class="${cls}">${en(p[4],3)}$</div><div class="${cls}">${en(p[5],2)}%</div><div><button class="close-btn" onclick="ctrl('close_${p[0]}')">✕</button></div></div>`}
-    document.getElementById('plist').innerHTML=h||'<div style="padding:14px;text-align:center;color:#5A9A99">فاضي - اختياراتك ثابتة 5$ / 0.08$ / سعة 2 - جاهز للتشغيل</div>';
+    document.getElementById('mainTitle').innerText='رصيدك '+d.real_live.toFixed(2)+'$ - هدف '+(0.02+parseFloat(document.getElementById('targ').value||0.08)).toFixed(2)+'$ - فقط عملات آمنة - يحظر AVA';
+    let btn=document.getElementById('btnRun'); if(d.is_running){btn.innerText='ايقاف آمن V102.6'; btn.style.background='#F87171'; btn.style.color='#FFF';} else {btn.innerText='تشغيل آمن V102.6'; btn.style.background='#2DD4BF'; btn.style.color='#0B1220';}
+    let h=''; for(const p of d.positions){let cls=Number(p[5])>=0?'profit-pos':'profit-neg'; h+=`<div class="rw" style="grid-template-columns:1fr 0.7fr 1fr 0.7fr 0.7fr 0.7fr 0.6fr 0.6fr"><div>${p[0]} ✅</div><div><span class="badge safe">آمن</span></div><div class="${cls}">${p[6]}</div><div>${en(p[2],4)}</div><div>${en(p[3],4)}</div><div class="${cls}">${en(p[4],3)}$</div><div class="${cls}">${en(p[5],2)}%</div><div><button class="close-btn" onclick="ctrl('close_${p[0]}')">✕</button></div></div>`}
+    document.getElementById('plist').innerHTML=h||'<div style="padding:14px;text-align:center;color:#2DD4BF">آمن - فقط عملات ثقيلة مثل SOL AVAX LINK - يحظر AVA و البامبات ✅</div>';
   }catch(e){}
 }
 async function load(){
