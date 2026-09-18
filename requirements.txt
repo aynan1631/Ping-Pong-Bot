@@ -2,5 +2,3 @@ flask
 gunicorn
 python-binance
 requests
-pandas
-numpy
